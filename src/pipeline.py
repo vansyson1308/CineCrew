@@ -66,6 +66,26 @@ def get_enabled_stages(config_path: Optional[Path] = None) -> List[Dict[str, Any
     return [s for s in stages if s.get("enabled", True)]
 
 
+def build_script_context(script_content: str, max_len: int) -> Dict[str, Any]:
+    """
+    Gate B of the two-point truncation, made explicit: whole scenes/paragraphs up to `max_len`
+    characters become `script_segment`, and `coverage_report` lists every omitted span (with source
+    offsets and an extractive summary) instead of dropping text silently.
+    """
+    from .skills.script_segmentation import select_within
+
+    sel = select_within(script_content, max_len)
+    rep = sel["coverage_report"]
+    if rep["omitted_chars"]:
+        print(
+            f"   ⚠️  [Pipeline] script is {rep['total_chars']} chars; the DSL stages see "
+            f"{rep['covered_chars']} ({rep['coverage_ratio']:.0%}). {len(rep['omitted_segments'])} segment(s) "
+            "omitted — listed in shots/coverage_report.json. Split the story into episodes to cover them.",
+            flush=True,
+        )
+    return sel
+
+
 def run_pipeline(
     script_content: str,
     *,
@@ -148,11 +168,11 @@ def run_pipeline(
     if script_segment_max_len is None:
         script_segment_max_len = get_limits(config_path).get("script_segment_dsl", 10000)
 
+    _script = build_script_context(script_content, script_segment_max_len)
     ctx: Dict[str, Any] = {
         "script_content": script_content,
-        "script_segment": script_content[:script_segment_max_len]
-        if len(script_content) > script_segment_max_len
-        else script_content,
+        "script_segment": _script["script_segment"],
+        "coverage_report": _script["coverage_report"],
         "asset_library": None,
         "scene_blueprint": None,
         "video_jobs": None,
@@ -167,6 +187,7 @@ def run_pipeline(
         ctx.update({k: v for k, v in initial_ctx.items() if v is not None})
 
     _shots_dir = (run_root / "shots") if run_root is not None else (_PROJECT_ROOT / "data" / "output" / "shots")
+    _save_json(ctx["coverage_report"], _shots_dir / "coverage_report.json")
     _assets_base = str(run_root / "assets") if run_root is not None else "data/output/assets"
 
     for stage_spec in stages:

@@ -1,0 +1,12 @@
+=========================== short test summary info ============================
+FAILED tests/test_upstream_regressions.py::test_short_dialogue_shot_keeps_line_and_voice
+FAILED tests/test_upstream_regressions.py::test_every_example_dialogue_line_reaches_a_job
+FAILED tests/test_upstream_regressions.py::test_rejected_clip_is_not_assembled_as_final
+FAILED tests/test_upstream_regressions.py::test_judge_error_is_not_acceptance
+FAILED tests/test_upstream_regressions.py::test_failed_shot_blocks_final_assembly
+FAILED tests/test_upstream_regressions.py::test_keyframe_judge_receives_reference_images
+FAILED tests/test_upstream_regressions.py::test_visual_judge_attaches_reference_images_to_request
+FAILED tests/test_upstream_regressions.py::test_kept_keyframe_prompt_is_the_prompt_that_rendered_it
+FAILED tests/test_upstream_regressions.py::test_kept_clip_prompt_is_the_prompt_that_rendered_it
+FAILED tests/test_upstream_regressions.py::test_script_truncation_is_reported
+10 failed in 3.58s

@@ -145,7 +145,8 @@ class FixtureVideoProvider(Provider):
         if existing:
             self.state.bump("idempotent_replays")
             return SubmitResult(existing)
-        if "[[ratelimit]]" in prompt and self.state.bump(f"rl_{idempotency_key}") == 1:
+        # a rate limit is about the service, not the request id: the first try of this prompt gets a 429
+        if "[[ratelimit]]" in prompt and self.state.bump(f"rl_{hashlib.md5(prompt.encode()).hexdigest()}") == 1:
             raise RateLimited("fixture video: injected 429", retry_after=0.05)
         if "[[ambiguous]]" in prompt and self.state.bump(f"amb_{idempotency_key}") == 1:
             # The service DID create the job, but the client never learned its id.

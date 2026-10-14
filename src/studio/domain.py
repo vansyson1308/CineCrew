@@ -332,7 +332,8 @@ def plan_jobs(store: Store, episode: Dict[str, Any], assets: Optional[Dict[str, 
     specs: List[Dict[str, Any]] = []
     for i, shot in enumerate(bp.shots):
         ss = studio["shots"][shot.shot_id]
-        refs = [a for a in list(ss.get("wardrobe", {})) + ss.get("props", []) if a in assets]
+        loc = [shot.staging_layer.environment_id] if shot.staging_layer and shot.staging_layer.environment_id else []
+        refs = [a for a in list(ss.get("wardrobe", {})) + loc + ss.get("props", []) if a in assets]
         ref_keys = [f"ref:{a}" for a in refs]
         specs.append({"key": f"kf:{shot.shot_id}", "kind": "image", "shot_id": shot.shot_id, "deps": ref_keys,
                       "mandatory": True, "locked": bool(ss.get("locked") or ss.get("keyframe_locked")),

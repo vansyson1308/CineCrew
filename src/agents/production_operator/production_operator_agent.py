@@ -20,7 +20,13 @@ ProductionOperator Agent [Controller] — FilmDSL Layer 4 + (optional) execution
                      VisualJudge(sampled frames) -> accept | retry
       post          : clips cut together in order (ffmpeg concat, fade-in on the first shot)
      Results are written back into the blueprint: keyframe_image_path, video_clip_path(s),
-     visual_review, final_film_path, and the prompt that finally rendered.
+     visual_review, final_film_path / draft_film_path, and the prompt that rendered the kept media.
+
+   Quality states are explicit. Every keyframe / clip ends with a verdict:
+     accepted | rejected | review_error | unreviewed
+   and every attempt is recorded with the exact prompt and seed that produced it. Only a cut
+   whose every segment rendered AND was accepted becomes `final_film_path`; anything else is
+   at most a labelled `draft_film_path`, and a cut with a missing segment is not assembled.
 """
 
 import sys
@@ -99,7 +105,10 @@ class ProductionOperatorAgent:
             if dialogue.has_dialogue and dialogue.text:
                 core_hint = self._estimate_dialogue_duration(dialogue.text)
                 segment_durations = self._split_dialogue_shot_duration(total_duration, core_hint=core_hint)
-                segment_roles = ["prelude", "dialogue_core", "afterglow"][: len(segment_durations)]
+                # A short shot stays one segment, and that segment carries the line.
+                segment_roles = (
+                    ["prelude", "dialogue_core", "afterglow"] if len(segment_durations) == 3 else ["dialogue_single"]
+                )
             else:
                 segment_durations, segment_roles = [total_duration], ["single"]
 
@@ -119,9 +128,9 @@ class ProductionOperatorAgent:
                             else DEFAULT_NEGATIVE_PROMPT
                         ),
                         image_reference=image_ref,
-                        dialogue=dialogue.text if role == "dialogue_core" else None,
-                        voice=(dialogue.voice_preset or (speaker.voice_preset_id if speaker else None)) if role == "dialogue_core" else None,
-                        voice_instructions=voice_instructions if role == "dialogue_core" else None,
+                        dialogue=dialogue.text if role in _SPOKEN_ROLES else None,
+                        voice=(dialogue.voice_preset or (speaker.voice_preset_id if speaker else None)) if role in _SPOKEN_ROLES else None,
+                        voice_instructions=voice_instructions if role in _SPOKEN_ROLES else None,
                         duration=seg_dur,
                         width=width,
                         height=height,
@@ -169,13 +178,17 @@ class ProductionOperatorAgent:
         """
         Run the batch on the T2I_* / VIDEO_* backends.
 
-        judge        : score every keyframe / clip with the VLM VisualJudge and retry rejected
-                       ones (at most `max_retries` extra attempts each) using its revised prompt.
+        judge        : score every keyframe / clip with the VLM VisualJudge (given the canonical
+                       reference sheets as images) and retry rejected ones (at most `max_retries`
+                       extra attempts each) using its revised prompt. A judge failure is recorded
+                       as `review_error`, never as acceptance.
         keyframes    : render a keyframe per shot first (TI2I with the character sheets when
                        available) and use it as the I2V reference; False -> reference sheets only.
-        stitch       : cut all clips together in shot order (ffmpeg) into <output_dir>/film.mp4,
-                       honouring the first shot's fade_in; path stored in blueprint.final_film_path.
-        Returns one VideoResult per job; blueprint (if given) is updated in place.
+        stitch       : cut the clips together in shot order (ffmpeg). Every segment accepted ->
+                       <output_dir>/film.mp4 = blueprint.final_film_path. Every segment present but
+                       some not accepted -> <output_dir>/draft_film.mp4 = blueprint.draft_film_path.
+                       A missing segment -> nothing is assembled. See blueprint.assembly_report.
+        Returns one VideoResult per job (the kept attempt); blueprint (if given) is updated in place.
         """
         out = Path(output_dir)
         by_shot: Dict[str, ShotBlueprint] = {s.shot_id: s for s in blueprint.shots} if blueprint else {}
@@ -192,10 +205,12 @@ class ProductionOperatorAgent:
                     job.image_reference = shot.render_layer.image.keyframe_image_path
 
         print(f"--- [ProductionOperator] Clips for {len(batch.jobs)} jobs (judge={judge}) ---", flush=True)
-        results = [
+        outcomes = [
             self._render_clip(job, by_shot.get(job.shot_id), out, judge, max_retries, global_style)
             for job in batch.jobs
         ]
+        results = [o[0] for o in outcomes]
+        verdicts = {(job.job_id or job.segment_id): o[1] for job, o in zip(batch.jobs, outcomes)}
 
         for shot in by_shot.values():
             if shot.render_layer is None:
@@ -205,47 +220,65 @@ class ProductionOperatorAgent:
             shot.render_layer.video.video_clip_path = paths[0] if paths else None
 
         done = sum(1 for r in results if r.status == "completed")
-        print(f"   ✅ Execution finished: {done}/{len(results)} clips", flush=True)
+        accepted = sum(1 for v in verdicts.values() if v == "accepted")
+        print(f"   ✅ Execution finished: {done}/{len(results)} clips rendered, {accepted} accepted", flush=True)
 
-        if stitch and blueprint and done:
-            film = self.stitch(blueprint, out / "film.mp4")
-            if film:
-                print(f"   🎞  Film assembled: {film}", flush=True)
+        if blueprint is not None:
+            report = assembly_readiness(batch, results, verdicts)
+            blueprint.assembly_report = report
+            print(f"   📋 Assembly readiness: {report['status']} — {report['reason']}", flush=True)
+            if stitch and report["status"] in ("final", "draft"):
+                name = "film.mp4" if report["status"] == "final" else "draft_film.mp4"
+                film = self.stitch(blueprint, out / name, final=report["status"] == "final")
+                if film:
+                    print(f"   🎞  {'Film' if report['status'] == 'final' else 'DRAFT preview (not a release)'}: {film}", flush=True)
         return results
 
     @staticmethod
-    def stitch(blueprint: SceneBlueprint, out_path: Path) -> Optional[Path]:
-        """Post: concatenate every rendered clip in shot/segment order (assembly_layer transitions)."""
+    def stitch(blueprint: SceneBlueprint, out_path: Path, final: bool = False) -> Optional[Path]:
+        """
+        Concatenate every rendered clip in shot/segment order (assembly_layer transitions).
+        `final=True` records the result as blueprint.final_film_path; otherwise it is only a draft.
+        Refuses to cut when a shot that has a render layer has no clip (no silent omission).
+        """
         clips: List[str] = []
         for shot in blueprint.shots:
-            if shot.render_layer is not None:
-                clips.extend(shot.render_layer.video.video_clip_paths)
+            if shot.render_layer is None:
+                continue
+            paths = shot.render_layer.video.video_clip_paths
+            if not paths or not all(Path(p).exists() for p in paths):
+                print(f"   ⛔ [{shot.shot_id}] has no rendered clip; refusing to assemble an incomplete cut.", flush=True)
+                return None
+            clips.extend(paths)
         if not clips:
             return None
         first = blueprint.shots[0].assembly_layer
         fade_in = 0.5 if (first and first.transition_in == "fade_in") else 0.0
         film = media_tools.concat_clips([Path(c) for c in clips], Path(out_path), fade_in=fade_in)
         if film:
-            blueprint.final_film_path = str(film)
+            if final:
+                blueprint.final_film_path = str(film)
+            else:
+                blueprint.draft_film_path = str(film)
         return film
 
     def _render_keyframe(self, shot: ShotBlueprint, out_dir: Path, judge: bool, max_retries: int, global_style: str) -> None:
         img = shot.render_layer.image
-        refs = [
-            p
-            for c in (img.conditioning.character_consistency if img.conditioning else [])
-            for p in c.reference_image_paths
-            if Path(p).exists()
-        ]
-        prompt = img.resolved_ti2i if (refs and img.resolved_ti2i) else img.resolved_t2i
+        ref_map = _reference_map(shot)
+        refs = [p for paths in ref_map.values() for p in paths]
+        use_ti2i = bool(refs and img.resolved_ti2i)
+        prompt = img.resolved_ti2i if use_ti2i else img.resolved_t2i
         if not prompt:
             return
 
-        review_log: List[dict] = []
-        final_path: Optional[Path] = None
+        attempts: List[dict] = []
         for attempt in range(max_retries + 1):
             path = out_dir / f"{shot.shot_id}_kf{attempt}.png"
-            print(f"   🖼  [{shot.shot_id}] keyframe attempt {attempt + 1} ({'TI2I' if refs else 'T2I'})", flush=True)
+            seed = None if img.seed is None else img.seed + attempt
+            record = {"attempt": attempt, "prompt": prompt, "seed": seed, "mode": "TI2I" if refs else "T2I",
+                      "reference_images": refs, "path": None, "verdict": "pending"}
+            attempts.append(record)
+            print(f"   🖼  [{shot.shot_id}] keyframe attempt {attempt + 1} ({record['mode']})", flush=True)
             try:
                 self._t2i_client().render_to_file(
                     path,
@@ -253,39 +286,45 @@ class ProductionOperatorAgent:
                     negative_prompt=img.negative_prompt or "",
                     reference_images=refs or None,
                     size=Config.T2I_KEYFRAME_SIZE,
-                    seed=None if img.seed is None else img.seed + attempt,
+                    seed=seed,
                 )
             except Exception as e:
                 print(f"      ❌ T2I failed: {type(e).__name__}: {e}", flush=True)
-                review_log.append({"attempt": attempt, "error": f"{type(e).__name__}: {e}"})
+                record.update(verdict="generation_failed", error=f"{type(e).__name__}: {e}")
                 continue
-            final_path = path
+            record["path"] = str(path)
             if not judge:
+                record["verdict"] = "unreviewed"
                 break
             try:
-                review = self._visual_judge().review_keyframe(str(path), shot, prompt, global_style, used_references=bool(refs))
+                review = self._visual_judge().review_keyframe(
+                    str(path), shot, prompt, global_style, used_references=bool(refs), reference_images=ref_map,
+                )
             except Exception as e:
-                print(f"      ⚠️  judge failed ({e}); keeping this keyframe", flush=True)
-                review_log.append({"attempt": attempt, "judge_error": str(e)})
+                print(f"      ⚠️  judge failed ({e}); keyframe kept as review_error (not accepted)", flush=True)
+                record.update(verdict="review_error", judge_error=f"{type(e).__name__}: {e}")
                 break
-            review_log.append({"attempt": attempt, **review.model_dump()})
+            record.update(verdict="accepted" if review.accepted else "rejected", review=review.model_dump())
             if review.accepted:
                 print(f"      ✅ accepted (score {review.score:.2f})", flush=True)
                 break
             print(f"      ✏️  rejected (score {review.score:.2f}): {'; '.join(review.issues)[:160]}", flush=True)
-            if review.revised_prompt:
-                prompt = review.revised_prompt
+            if review.revised_prompt and attempt < max_retries:
+                prompt = review.revised_prompt   # used by the NEXT attempt only
 
-        if final_path is not None:
-            img.keyframe_image_path = str(final_path)
-            # Keep the blueprint truthful: store the prompt that actually rendered the kept keyframe.
-            if refs and img.resolved_ti2i:
-                img.resolved_ti2i = prompt
+        kept = _pick_kept(attempts)
+        if kept is not None:
+            img.keyframe_image_path = kept["path"]
+            # Keep the blueprint truthful: the stored prompt is the one that rendered the kept keyframe.
+            if use_ti2i:
+                img.resolved_ti2i = kept["prompt"]
             else:
-                img.resolved_t2i = prompt
+                img.resolved_t2i = kept["prompt"]
         vr = shot.render_layer.visual_review or {}
-        vr["keyframe"] = review_log[-1] if review_log else None
-        vr["keyframe_attempts"] = review_log
+        vr["keyframe"] = kept.get("review") if kept else None
+        vr["keyframe_verdict"] = kept["verdict"] if kept else "generation_failed"
+        vr["keyframe_selected_attempt"] = kept["attempt"] if kept else None
+        vr["keyframe_attempts"] = attempts
         shot.render_layer.visual_review = vr
 
     def _render_clip(
@@ -296,42 +335,67 @@ class ProductionOperatorAgent:
         judge: bool,
         max_retries: int,
         global_style: str,
-    ) -> VideoResult:
+    ):
+        """Returns (kept VideoResult, verdict). Never mutates the planned prompt with an unrendered one."""
         video = self._video_client()
-        review_log: List[dict] = []
-        result: Optional[VideoResult] = None
+        ref_map = _reference_map(shot) if shot is not None else {}
+        attempts: List[dict] = []
+        results: List[VideoResult] = []
+        prompt, seed = job.prompt, job.seed
         for attempt in range(max_retries + 1):
-            if attempt and job.seed is not None:
-                job.seed += 1
+            if attempt and seed is not None:
+                seed += 1
+            run_job = job.model_copy(update={"prompt": prompt, "seed": seed})
             clip_dir = out / "clips" if attempt == 0 else out / "clips" / f"retry_{attempt}"
-            result = video.generate(job, clip_dir)
+            result = video.generate(run_job, clip_dir)
+            results.append(result)
+            record = {"attempt": attempt, "segment_id": job.segment_id, "prompt": prompt, "seed": seed,
+                      "video_id": result.video_id, "path": result.video_path, "verdict": "pending"}
+            attempts.append(record)
             if result.status != "completed":
-                review_log.append({"attempt": attempt, "error": result.error})
+                record.update(verdict="generation_failed", error=result.error, status=result.status)
                 continue
             if not judge or shot is None:
+                record["verdict"] = "unreviewed"
                 break
             frames = video.sample_frames(result.video_id, Path(result.video_path), out / "frames", n=4)
             if not frames:
-                review_log.append({"attempt": attempt, "judge_skipped": "no frames available (no spritesheet, no ffmpeg)"})
+                record.update(verdict="review_error", judge_error="no frames available (no spritesheet, no ffmpeg)")
                 break
             try:
-                review = self._visual_judge().review_clip([str(f) for f in frames], shot, job.prompt, global_style)
+                review = self._visual_judge().review_clip(
+                    [str(f) for f in frames], shot, prompt, global_style, reference_images=ref_map,
+                )
             except Exception as e:
-                review_log.append({"attempt": attempt, "judge_error": str(e)})
+                record.update(verdict="review_error", judge_error=f"{type(e).__name__}: {e}")
                 break
-            review_log.append({"attempt": attempt, "segment_id": job.segment_id, **review.model_dump()})
+            record.update(verdict="accepted" if review.accepted else "rejected", review=review.model_dump())
             if review.accepted:
                 print(f"      ✅ clip accepted (score {review.score:.2f})", flush=True)
                 break
             print(f"      ✏️  clip rejected (score {review.score:.2f}): {'; '.join(review.issues)[:160]}", flush=True)
-            if review.revised_prompt:
-                job.prompt = review.revised_prompt
+            if review.revised_prompt and attempt < max_retries:
+                prompt = review.revised_prompt   # used by the NEXT attempt only
+
+        kept = _pick_kept(attempts)
+        if kept is not None:
+            kept_result = results[kept["attempt"]]
+            # video_jobs.json must describe what produced the kept clip.
+            job.prompt, job.seed = kept["prompt"], kept["seed"]
+            verdict = kept["verdict"]
+        else:
+            kept_result, verdict = results[-1], "generation_failed"
 
         if shot is not None and shot.render_layer is not None:
             vr = shot.render_layer.visual_review or {}
-            vr.setdefault("clips", []).append({"segment_id": job.segment_id, "attempts": review_log})
+            vr.setdefault("clips", []).append({
+                "segment_id": job.segment_id,
+                "verdict": verdict,
+                "selected_attempt": kept["attempt"] if kept else None,
+                "attempts": attempts,
+            })
             shot.render_layer.visual_review = vr
-        return result
+        return kept_result, verdict
 
     # ── lazy clients ──────────────────────────────────────────────────────
 
@@ -428,11 +492,64 @@ class ProductionOperatorAgent:
         return len(words) / 3.0
 
 
+_SPOKEN_ROLES = ("dialogue_core", "dialogue_single")
+
 _SEGMENT_HINT = {
     "prelude": " This segment covers the lead-in before the line is spoken; the character may prepare physically but does NOT start the main dialogue yet.",
     "dialogue_core": " This segment contains the main spoken line; keep the performance focused on delivering the dialogue.",
     "afterglow": " This segment shows the silent reaction and emotional afterglow immediately after the line finishes; no new dialogue is spoken.",
+    "dialogue_single": " The whole shot is the spoken line; keep the performance focused on delivering the dialogue.",
 }
+
+_VERDICT_RANK = {"accepted": 3, "rejected": 2, "review_error": 1, "unreviewed": 1}
+
+
+def _pick_kept(attempts: List[dict]) -> Optional[dict]:
+    """
+    The candidate to keep: an accepted attempt if any, otherwise the best-scored rendered one
+    (ties -> latest). Attempts that produced no media are never kept.
+    """
+    rendered = [a for a in attempts if a.get("path") and a.get("verdict") != "generation_failed"]
+    if not rendered:
+        return None
+    def key(a):
+        score = (a.get("review") or {}).get("score", 0.0)
+        return (_VERDICT_RANK.get(a["verdict"], 0), score, a["attempt"])
+    return max(rendered, key=key)
+
+
+def _reference_map(shot: Optional[ShotBlueprint]) -> Dict[str, List[str]]:
+    """{asset_id: [existing canonical reference image paths]} for the shot's conditioned characters."""
+    if shot is None or shot.render_layer is None or shot.render_layer.image.conditioning is None:
+        return {}
+    out: Dict[str, List[str]] = {}
+    for c in shot.render_layer.image.conditioning.character_consistency:
+        paths = [p for p in c.reference_image_paths if Path(p).exists()]
+        if paths:
+            out[c.asset_id] = paths
+    return out
+
+
+def assembly_readiness(batch: VideoJobBatch, results: List[VideoResult], verdicts: Dict[str, str]) -> dict:
+    """
+    Final-cut gate. `final` only when every job rendered and was accepted; `draft` when every job
+    rendered but some are rejected / unreviewed / review_error; `blocked` when any job has no clip.
+    """
+    segments = []
+    for job, res in zip(batch.jobs, results):
+        v = verdicts.get(job.job_id or job.segment_id, "generation_failed")
+        segments.append({"job_id": job.job_id, "shot_id": job.shot_id, "segment_id": job.segment_id,
+                         "rendered": bool(res and res.status == "completed" and res.video_path),
+                         "verdict": v, "error": res.error if res else None})
+    missing = [s["segment_id"] for s in segments if not s["rendered"]]
+    not_accepted = [s["segment_id"] for s in segments if s["rendered"] and s["verdict"] != "accepted"]
+    if missing:
+        status, reason = "blocked", f"{len(missing)} mandatory segment(s) have no clip: {', '.join(missing)}"
+    elif not_accepted:
+        status, reason = "draft", f"{len(not_accepted)} segment(s) not accepted by review: {', '.join(not_accepted)}"
+    else:
+        status, reason = "final", "every segment rendered and accepted"
+    return {"status": status, "reason": reason, "missing": missing, "not_accepted": not_accepted, "segments": segments}
 
 
 def _voice_instructions(speaker, shot: ShotBlueprint) -> Optional[str]:

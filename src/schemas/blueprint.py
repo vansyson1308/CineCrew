@@ -363,8 +363,23 @@ class SceneBlueprint(BaseModel):
     blueprint_id: str = Field(..., description="Globally unique ID")
     metadata: BlueprintMetadata
     global_style: str = Field(..., description="Global visual style, from the AssetLibrary")
+    schema_version: str = Field(
+        "1.1", description="FilmDSL schema version (src/studio/migrations.py upgrades older documents)"
+    )
     final_film_path: Optional[str] = Field(
-        None, description="The assembled film (all clips cut together), once execution has run with stitch: true"
+        None,
+        description=(
+            "The assembled film, set ONLY when every mandatory segment rendered and was accepted by the "
+            "visual judge. Anything less is a draft (draft_film_path) or no film at all."
+        ),
+    )
+    draft_film_path: Optional[str] = Field(
+        None,
+        description="Assembled preview that is NOT a final release (rejected / unreviewed / review_error clips).",
+    )
+    assembly_report: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Readiness of the cut: per-segment verdicts, missing segments, and why the film is final/draft/blocked.",
     )
     shots: List[ShotBlueprint] = Field(default_factory=list)
 

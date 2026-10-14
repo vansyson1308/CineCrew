@@ -25,9 +25,20 @@ dependencies = [
   "Jinja2>=3.0.0",
 ]
 
+[project.optional-dependencies]
+studio = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27", "Pillow>=10.0"]
+test = ["pytest>=8.0", "httpx>=0.27"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [project.urls]
 Homepage = "https://github.com/Ironieser/CineCrew"
 Repository = "https://github.com/Ironieser/CineCrew"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"src.studio" = ["templates/*.json"]
+"src.agents" = ["*/*.yaml"]

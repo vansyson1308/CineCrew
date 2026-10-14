@@ -204,6 +204,26 @@ The cascade is config-driven, so the paper's ablations are toggles, not code:
 | Visual judge at execution | `production_operator.judge: false` |
 
 
+## CineCrew Studio (local director app)
+
+`src/studio/` wraps the crew in a durable local application: persistent series assets, storyboard approval,
+retryable jobs with immutable attempts, a budget ledger, natural-language revisions with selective regeneration,
+and finished exports (TTS voices, SRT/ASS subtitles, exact overlays, music ducking, 9:16 1080x1920 / 16:9
+1920x1080 with the native render resolution recorded, ffprobe checks, manifest, cost report, comic carousel).
+Design and evidence: [`docs/studio/`](studio/) (AUDIT, ADR-001, PLAN with the completion matrix).
+
+```bash
+scripts/start_studio.sh                       # venv + deps + UI build + server on http://127.0.0.1:8765
+python -m src.studio demo --fresh --out out/  # OFFLINE FIXTURE end-to-end (2 episodes, exports, comic, revision)
+python -m pytest tests -q                     # offline engineering gate (no network, no spend)
+cd studio-ui && npm run test:e2e              # UI smoke test (Playwright)
+python -m src.studio canary --budget 3        # LIVE: one shot on the configured providers (paid)
+```
+
+Offline fixture mode is the default for new projects: deterministic stand-in providers whose output is
+stamped "OFFLINE FIXTURE". It proves the plumbing, never model quality. Live mode needs credentials, a project
+budget, and prices in `configs/studio/providers.yaml` (a null price blocks that paid call).
+
 ## Repository layout
 
 ```
@@ -213,6 +233,7 @@ src/
 ├── pipeline.py            config-driven stage runner; threads one SceneBlueprint through the crew
 ├── engine/base_agent.py   ConfigurableAgent — YAML prompts + Pydantic schema → structured LLM call
 ├── agents/<crew>/         one package per crew member: <crew>_agent.py + its YAML prompt(s)
+├── studio/                CineCrew Studio: store, engine, providers, budget, export, revisions, API, CLI
 ├── schemas/               FilmDSL (blueprint.py), assets.py, video_jobs.py, critic.py, ...
 ├── adapters/              OpenAI-style clients: t2i_client.py, video_client.py; ffmpeg helpers
 ├── skills/                deterministic helpers: context building, asset I/O, validation
@@ -223,6 +244,8 @@ configs/
 └── prompts/               Jinja2 templates used by the skill layer
 our_dataset/               bundled scripts + character reference images
 examples/                  artifacts of 13 example runs
+studio-ui/                 director workspace (React/TS/Vite) + Playwright smoke test
+tests/                     offline regression + engineering-gate tests (pytest)
 docs/website/              project page (GitHub Pages)
 ```
 

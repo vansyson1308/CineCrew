@@ -15,7 +15,7 @@ the next attempt. ProductionOperatorAgent.execute_jobs() runs the loop.
 """
 
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional, Tuple
 
 from ...engine import ConfigurableAgent
 from ...schemas.blueprint import ShotBlueprint
@@ -37,13 +37,11 @@ class VisualJudgeAgent:
         prompt: str,
         global_style: str = "",
         used_references: bool = False,
+        reference_images: Optional[Dict[str, List[str]]] = None,
     ) -> VisualReview:
-        note = (
-            "The image was generated with the characters' reference sheets attached "
-            "(Picture N refers to them); judge identity against those sheets."
-            if used_references else ""
-        )
-        return self._review([image_path], "a generated keyframe (single image)", shot, prompt, global_style, note)
+        """`reference_images`: {asset_id: [canonical sheet paths]} sent to the VLM ahead of the media."""
+        return self._review([image_path], "a generated keyframe (single image)", shot, prompt, global_style,
+                            reference_images, used_references)
 
     def review_clip(
         self,
@@ -51,35 +49,68 @@ class VisualJudgeAgent:
         shot: ShotBlueprint,
         prompt: str,
         global_style: str = "",
+        reference_images: Optional[Dict[str, List[str]]] = None,
     ) -> VisualReview:
         kind = (
             "frames sampled from a generated video clip, in time order"
             if len(frame_paths) > 1
             else "a contact sheet of frames sampled from a generated video clip (read left-to-right, top-to-bottom)"
         )
-        return self._review(frame_paths, kind, shot, prompt, global_style, "")
+        return self._review(frame_paths, kind, shot, prompt, global_style, reference_images, False)
 
     # ------------------------------------------------------------------
 
     def _review(
         self,
-        images: List[str],
+        media: List[str],
         media_kind: str,
         shot: ShotBlueprint,
         prompt: str,
         global_style: str,
-        reference_note: str,
+        reference_images: Optional[Dict[str, List[str]]],
+        used_references: bool,
     ) -> VisualReview:
+        refs, note = _reference_images_and_note(reference_images, len(media), used_references)
         return self._agent.run(
-            images=images,
+            images=refs + list(media),
             media_kind=media_kind,
             global_style=global_style or "(unspecified)",
             shot_context=_shot_context(shot),
             character_appearances=_appearances(shot),
             constraints=_constraints(shot),
             prompt=prompt,
-            reference_note=reference_note,
+            reference_note=note,
         )
+
+
+def _reference_images_and_note(
+    reference_images: Optional[Dict[str, List[str]]], n_media: int, used_references: bool
+) -> Tuple[List[str], str]:
+    """
+    Canonical sheets go FIRST in the image list, labelled by asset id, so the VLM compares identity
+    against the actual pictures rather than a sentence claiming they exist.
+    """
+    refs: List[str] = []
+    labels: List[str] = []
+    for asset_id, paths in (reference_images or {}).items():
+        for p in paths:
+            refs.append(p)
+            labels.append(f"Image {len(refs)} = canonical reference sheet of {asset_id}")
+    if not refs:
+        note = (
+            "No canonical reference images are attached; judge identity only against the appearance sheets (text)."
+            if used_references else ""
+        )
+        return [], note
+    first, last = len(refs) + 1, len(refs) + n_media
+    media = f"Image {first}" if n_media == 1 else f"Images {first}-{last}"
+    note = (
+        "REFERENCE IMAGES (ground truth for identity, not media to judge):\n- "
+        + "\n- ".join(labels)
+        + f"\nThe media to judge is {media}. Check every character's face, hair, build and wardrobe against "
+        "their reference sheet; identity drift is a material defect."
+    )
+    return refs, note
 
 
 def _shot_context(shot: ShotBlueprint) -> str:

@@ -1,0 +1,53 @@
+# CineCrew Studio — provider selection and prices.
+#
+# Live calls happen only when ALL of these hold:
+#   1. the project is in `live` mode,
+#   2. the project's budget limit (USD) is above what is already committed + reserved,
+#   3. the provider's credentials are set (env vars below; never put keys in this file),
+#   4. a price is known: either `usd` per unit or a conservative `max_usd_per_call`.
+# A price left null blocks that paid operation (the studio refuses to guess).
+# Prices below are deliberately null: fill them from the provider's current price page
+# before the canary run.
+
+live:
+  image:
+    provider: openai-image            # OpenAI gpt-image-1  (T2I_API_KEY, falls back to LLM_API_KEY)
+    model: gpt-image-1
+    size_portrait: "1024x1536"
+    size_landscape: "1536x1024"
+    price: {unit: image, usd: null, max_usd_per_call: null,
+            input_usd_per_1m_tokens: null, output_usd_per_1m_tokens: null}
+  video:
+    provider: veo                     # Gemini API Veo 3.1 (VEO_API_KEY or GEMINI_API_KEY)
+    model: veo-3.1-generate-preview
+    size_portrait: "720x1280"
+    size_landscape: "1280x720"
+    price: {unit: second, usd: null, max_usd_per_call: null}
+    # Alternative: a self-hosted OpenAI-shaped server (e.g. Wan 2.2) — set provider: openai-compatible-video
+    # and declare EXACTLY the extra fields it accepts:
+    # provider: openai-compatible-video
+    # model: wan22-i2v
+    # base_url_env: VIDEO_BASE_URL
+    # capabilities: {extra_fields: [negative_prompt, seed, fps], min_duration: 1, max_duration: 5,
+    #                sizes: ["1280x720", "720x1280"], generates_audio: false}
+  tts:
+    provider: openai-tts              # OpenAI /audio/speech (TTS_API_KEY, falls back to LLM_API_KEY)
+    model: gpt-4o-mini-tts
+    price: {unit: 1k_chars, usd: null, max_usd_per_call: null}
+  judge:
+    provider: vlm-judge               # vision chat model behind LLM_* (JUDGE_MODEL overrides LLM_MODEL)
+    price: {unit: call, usd: null, max_usd_per_call: null}
+  planning:
+    # The CineCrew crew (≈10-15 LLM calls per story). Reserved as one upper bound before planning,
+    # settled from the token usage the trace records.
+    max_usd_per_episode: null
+    input_usd_per_1m_tokens: null
+    output_usd_per_1m_tokens: null
+
+offline_fixture:
+  # Deterministic stand-ins (src/studio/providers/fixture.py). Output is stamped OFFLINE FIXTURE.
+  # `usd` here is a pretend price used only to exercise budget accounting in offline mode.
+  image: {price: {unit: image, usd: 0.0}}
+  video: {price: {unit: second, usd: 0.0}, latency_seconds: 0.4}
+  tts: {price: {unit: 1k_chars, usd: 0.0}}
+  judge: {price: {unit: call, usd: 0.0}}

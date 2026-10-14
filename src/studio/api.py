@@ -352,7 +352,10 @@ def create_app(studio: Optional[Studio] = None, start_worker: bool = True, serve
 
     @app.post("/api/episodes/{eid}/edits/preview")
     def edit_preview(eid: str, req: EditText):
-        return _resolve_and(eid, req, revisions.preview)
+        try:
+            return _resolve_and(eid, req, revisions.preview)
+        except revisions.RevisionError as e:
+            _err(e, 409)
 
     @app.post("/api/episodes/{eid}/edits/apply")
     def edit_apply(eid: str, req: EditText):
@@ -495,6 +498,7 @@ def create_app(studio: Optional[Studio] = None, start_worker: bool = True, serve
         return {"id": j["id"], "key": j["key"], "kind": j["kind"], "state": j["state"],
                 "provider_state": j["provider_state"], "verdict": j["verdict"], "verdict_source": j["verdict_source"],
                 "error": j["error"], "locked": bool(j["locked"]), "cache_hit": bool(j["cache_hit"]),
+                "cancel_requested": bool(j["cancel_requested"]),
                 "attempts": n, "max_attempts": j["max_attempts"], "cost_usd": round(cost, 6),
                 "media_sha": sel["media_sha"] if sel else None,
                 "media_meta": sel["media_meta"] if sel else None,

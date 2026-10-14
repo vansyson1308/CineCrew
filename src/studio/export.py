@@ -12,6 +12,7 @@ overlays and subtitles -> media inspection -> manifest + cost/quality report + c
 Gates
   final            every mandatory shot and line rendered and accepted (engine.readiness)
   draft_preview    everything rendered but something is not accepted: watermarked DRAFT
+  draft_variant    a hook variant of an accepted cut (opening text card); labelled, never the release cut
   partial_preview  something is missing: a labelled slate stands in for each missing shot
                    (allow_draft=True only) — a missing shot is never silently dropped
 An export never calls a model. Re-exporting an unchanged cut returns the earlier export (0 calls).
@@ -82,7 +83,7 @@ def build_timeline(studio, episode_id: str) -> Dict[str, Any]:
 
 
 def export_episode(studio, episode_id: str, aspect: Optional[str] = None, burn_subtitles: Optional[bool] = None,
-                   allow_draft: bool = False, fit: str = "pad") -> Dict[str, Any]:
+                   allow_draft: bool = False, fit: str = "pad", hook: Optional[str] = None) -> Dict[str, Any]:
     avtools.require()
     store, engine, media = studio.store, studio.engine, studio.media
     ep = store.get("episodes", episode_id)
@@ -102,13 +103,24 @@ def export_episode(studio, episode_id: str, aspect: Optional[str] = None, burn_s
     else:
         status = "draft_preview" if ready["status"] == "draft" else "partial_preview"
 
+    overlays = list(settings.get("overlays") or [])
+    if hook is not None:
+        # hook variant: an exact opening text card from settings.hook_variants; always exported as a draft variant
+        hv = {h["id"]: h for h in settings.get("hook_variants") or []}
+        if hook not in hv:
+            raise ValueError(f"unknown hook variant {hook!r} (have: {sorted(hv)})")
+        overlays.insert(0, {"type": "text", "role": f"hook:{hook}", "text": hv[hook]["text"], "position": "center",
+                            "start": 0, "end": float(hv[hook].get("seconds", 2.5)), "size": 84})
+        if status == "final":
+            status = "draft_variant"
+
     tl = build_timeline(studio, episode_id)
     out_w, out_h = DELIVERY[aspect]
     key = hash_obj({"v": EXPORT_FORMAT_VERSION, "timeline": [{k: s[k] for k in ("shot_id", "duration", "clip_sha")}
                                                              for s in tl["shots"]],
                     "lines": [{k: l[k] for k in ("start", "end", "media_sha", "text")} for l in tl["lines"]],
                     "status": status, "aspect": aspect, "burn": burn, "fit": fit, "audio": settings.get("audio"),
-                    "subs": sub_cfg, "overlays": settings.get("overlays"),
+                    "subs": sub_cfg, "overlays": overlays,
                     "verdicts": [(i["key"], i["verdict"]) for i in ready["items"]]})
     prev = store.one("SELECT * FROM exports WHERE episode_id = ? AND input_hash = ? AND kind = 'video' "
                      "ORDER BY created_at DESC", (episode_id, key))
@@ -168,14 +180,15 @@ def export_episode(studio, episode_id: str, aspect: Optional[str] = None, burn_s
     scale_factor = min(out_w / nw, out_h / nh) if fit != "crop" else max(out_w / nw, out_h / nh)
     chain = [geo, "setsar=1", f"fps={FPS}"]
     inputs = ["-i", str(native_cut), "-i", str(mix)]
-    overlay_report, logo_inputs = _overlays(studio, project, settings.get("overlays") or [], work, out_w, out_h, chain)
+    overlay_report, logo_inputs = _overlays(studio, project, overlays, work, out_w, out_h, chain)
     for p in logo_inputs:
         inputs += ["-i", str(p["path"])]
     if burn and cues:
         chain.append(f"subtitles={avtools.esc_path(ass)}:fontsdir={avtools.esc_path(Path(avtools.FONT).parent)}")
     if status != "final":
-        lbl = avtools.write_text_file(work / "draft.txt", "DRAFT — NOT FOR RELEASE" if status == "draft_preview"
-                                      else "PARTIAL PREVIEW — SHOTS MISSING")
+        lbl = avtools.write_text_file(work / "draft.txt", {"draft_preview": "DRAFT — NOT FOR RELEASE",
+                                                             "draft_variant": f"HOOK VARIANT {hook} — DRAFT"}
+                                      .get(status, "PARTIAL PREVIEW — SHOTS MISSING"))
         chain.append(f"drawtext=fontfile={avtools.FONT_BOLD}:textfile={avtools.esc_path(lbl)}:fontcolor=red@0.85:"
                      f"fontsize={out_h // 40}:x=(w-text_w)/2:y=h*0.03:box=1:boxcolor=black@0.5")
     filter_complex = f"[0:v]{','.join(chain)}[v0]"
@@ -185,7 +198,7 @@ def export_episode(studio, episode_id: str, aspect: Optional[str] = None, burn_s
         filter_complex += (f";[{idx}:v]scale={p['w']}:-1[lg{k}];[{last}][lg{k}]overlay=x={p['x']}:y={p['y']}:"
                            f"enable='between(t,{p['start']},{p['end']})'[v{k + 1}]")
         last = f"v{k + 1}"
-    film = out / f"episode_{ep['number']:02d}_{aspect.replace(':', 'x')}.mp4"
+    film = out / (f"episode_{ep['number']:02d}_{aspect.replace(':', 'x')}" + (f"_hook{hook}" if hook else "") + ".mp4")
     avtools.run(inputs + ["-filter_complex", filter_complex, "-map", f"[{last}]", "-map", "1:a:0",
                           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
                           "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{tl['duration']:.3f}",

@@ -512,3 +512,69 @@ def test_api_end_to_end(tmp_path):
     assert pv.status_code == 200 and "kf:shot_01" in _affected(pv.json())
     ex = c.post(f"/api/episodes/{ep['id']}/export", json={"aspect": "9:16"})
     assert ex.status_code == 200 and ex.json()["status"] == "final"
+
+
+# ── missing audio, brand template, hook variants ────────────────────────────
+
+def test_silent_voice_is_rejected_and_blocks_final(studio):
+    def m(spec):
+        spec["shots"][1]["dialogue"]["text"] += " [[silent]]"
+    p, ep = small_project(studio, mutate=m)
+    r = render_all(studio, p, ep)
+    tts = _jobs(studio, ep)["tts:shot_02"]
+    assert tts["verdict"] == "rejected" and r["status"] != "final"
+    with pytest.raises(ExportRefused):
+        studio.export(ep["id"])
+
+
+def _supply_image(studio, tmp_path, name, color):
+    from PIL import Image
+    path = tmp_path / f"{name}.png"
+    Image.new("RGB", (400, 400), color).save(path)
+    return studio.media.put(path, "image")["sha"]
+
+
+def test_brand_template_exact_overlays_and_hook_variants(studio, tmp_path):
+    p = studio.create_series("brand_mooncake")
+    ep = studio.store.one("SELECT * FROM episodes WHERE project_id = ?", (p["id"],))
+    assets = domain.assets_by_asset_id(studio.store, p["id"])
+    for aid, color in (("product_banh", (180, 20, 20)), ("logo_tiem", (240, 200, 40))):
+        studio.store.update("assets", "id", assets[aid]["id"],
+                            {"canonical_media": _supply_image(studio, tmp_path, aid, color)})
+    domain.sync_jobs(studio.store, ep["id"])
+    assert render_all(studio, p, ep)["status"] == "final"
+    ref = studio.store.one("SELECT * FROM jobs WHERE episode_id = ? AND key = 'ref:product_banh'", (p["id"],))
+    assert ref is None or ref["verdict_source"] == "supplied" or not studio.store.q(
+        "SELECT 1 FROM attempts WHERE job_id = ? AND purpose = 'generate'", (ref["id"],)), \
+        "a supplied product image is used as-is, never regenerated"
+    ex = studio.export(ep["id"])
+    ov = ex["manifest"]["overlays"]
+    texts = {o["role"]: o["text"] for o in ov if o["type"] == "text"}
+    assert texts["price"] == "Hộp 4 bánh — 289.000đ" and texts["cta"] == "Đặt ngay: tiembanh.example"
+    assert any(o["type"] == "logo" and o["guarantee"].startswith("deterministic") for o in ov)
+    hb = studio.export(ep["id"], hook="B")
+    assert hb["status"] == "draft_variant" and hb["files"]["film"].endswith("_hookB.mp4")
+    assert any(o.get("role") == "hook:B" for o in hb["manifest"]["overlays"])
+    with pytest.raises(ValueError):
+        studio.export(ep["id"], hook="Z")
+
+
+def test_logo_overlay_requires_supplied_image(studio):
+    p = studio.create_series("brand_mooncake")
+    ep = studio.store.one("SELECT * FROM episodes WHERE project_id = ?", (p["id"],))
+    render_all(studio, p, ep)
+    with pytest.raises(ValueError):
+        studio.export(ep["id"], allow_draft=True)
+
+
+def test_remote_timeout_goes_to_review_and_is_never_resubmitted(studio, monkeypatch):
+    import src.studio.engine as eng
+    monkeypatch.setattr(eng, "MAX_REMOTE_WAIT_S", 1.0)
+    p, ep = small_project(studio, n_shots=1, mutate=_tag(0, "end_state", "[[timeout]]"))
+    render_all(studio, p, ep, timeout=30)
+    clip = _jobs(studio, ep)["clip:shot_01"]
+    assert clip["state"] == "needs_review" and clip["provider_state"] == "timed_out"
+    assert studio.engine.provider_for(p, "video").stats()["submissions"] == 1
+    a = studio.store.one("SELECT * FROM attempts WHERE job_id = ? AND purpose = 'generate'", (clip["id"],))
+    assert a["remote_id"], "the remote id is kept so a late result can still be reconciled"
+    assert studio.engine.readiness(ep["id"])["status"] == "blocked"

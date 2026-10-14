@@ -1,0 +1,48 @@
+{
+  "template_id": "brand_mooncake",
+  "kind": "brand",
+  "series_title": "Tiệm Bánh Hàng Đường — Trung Thu",
+  "language": "vi",
+  "aspect": "9:16",
+  "global_style": "bright commercial food photography, warm lantern light, clean shallow depth of field, vertical framing",
+  "note": "Fictional brand. product_banh and logo_tiem must be SUPPLIED images (upload before rendering): the product is conditioned on the supplied reference, the logo/price/CTA are composited exactly.",
+  "settings": {
+    "overlays": [
+      {"type": "text", "role": "title", "text": "Bánh Trung Thu Hàng Đường", "position": "top", "start": 0.3, "end": 4.0, "size": 72},
+      {"type": "text", "role": "price", "text": "Hộp 4 bánh — 289.000đ", "position": "lower_third", "start": 9.0, "end": 16.0, "size": 64},
+      {"type": "text", "role": "cta", "text": "Đặt ngay: tiembanh.example", "position": "bottom", "start": 12.0, "end": 16.0, "size": 60},
+      {"type": "logo", "asset_id": "logo_tiem", "position": "top_right", "width": 200, "start": 0, "end": 16.0}
+    ],
+    "hook_variants": [
+      {"id": "A", "text": "Trung Thu này tặng gì?", "seconds": 2.5},
+      {"id": "B", "text": "Nhân sen hạt dẻ — chỉ có mùa này", "seconds": 2.5},
+      {"id": "C", "text": "3 giây để chọn quà cho cả nhà", "seconds": 2.5}
+    ]
+  },
+  "assets": [
+    {"asset_id": "char_chi_lan", "kind": "character", "name": "Chị Lan", "identity": "Vietnamese woman, 35, hair in a low bun, warm smile, flour on her fingertips",
+     "wardrobe": {"default": "cream apron with a small red lantern embroidery over a white blouse"},
+     "voice": {"fixture": "fixture_b", "live": "coral", "instructions": "Giọng nữ Hà Nội ấm áp, tự hào về bánh nhà làm."}},
+    {"asset_id": "loc_tiem_banh", "kind": "location", "name": "Tiệm bánh Hàng Đường", "identity": "narrow old-quarter bakery front, wooden shelves of mooncake boxes, red paper lanterns hanging at the door"},
+    {"asset_id": "product_banh", "kind": "product", "name": "Hộp bánh Trung Thu", "identity": "SUPPLIED PRODUCT: red and gold square gift box holding four golden-brown mooncakes"},
+    {"asset_id": "logo_tiem", "kind": "logo", "name": "Logo tiệm", "identity": "SUPPLIED LOGO (composited, never generated)"},
+    {"asset_id": "voice_narrator", "kind": "voice", "name": "Người dẫn chuyện", "identity": "narrator",
+     "voice": {"fixture": "fixture_narrator", "live": "alloy", "instructions": "Giọng quảng cáo rõ ràng, thân thiện."}}
+  ],
+  "episodes": [
+    {"number": 1, "title": "Quà Trung Thu", "shots": [
+      {"shot_id": "shot_01", "duration": 5, "scale": "LS", "angle": "eye_level", "movement": "slow push-in", "lighting": "warm lantern light at dusk",
+       "location": "loc_tiem_banh", "characters": {"char_chi_lan": "default"}, "props": [], "action": "Chị Lan lifts a lantern at the bakery door and smiles at the street.",
+       "start_state": "bakery front, Chị Lan in the doorway", "end_state": "lantern raised, Chị Lan smiling", "beat": "welcome", "dialogue": null,
+       "narration": "Mùa trăng lại về phố cổ."},
+      {"shot_id": "shot_02", "duration": 5, "scale": "MS", "angle": "eye_level", "movement": "static", "lighting": "warm lantern light at dusk",
+       "location": "loc_tiem_banh", "characters": {"char_chi_lan": "default"}, "props": ["product_banh"], "action": "Chị Lan opens the gift box to show four mooncakes.",
+       "start_state": "closed gift box on the counter", "end_state": "box open, mooncakes visible", "beat": "pride",
+       "dialogue": {"speaker": "char_chi_lan", "text": "Bánh nhà làm, nhân sen hạt dẻ, nướng mỗi sáng."}},
+      {"shot_id": "shot_03", "duration": 6, "scale": "CU", "angle": "high", "movement": "slow tilt down", "lighting": "warm lantern light at dusk",
+       "location": "loc_tiem_banh", "characters": {}, "props": ["product_banh"], "action": "The open gift box sits on the counter beside a teapot.",
+       "start_state": "open gift box, steam from the teapot", "end_state": "box centred in frame", "beat": "offer", "dialogue": null,
+       "narration": "Đặt hôm nay, giao tận nhà trước Rằm."}
+    ]}
+  ]
+}

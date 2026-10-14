@@ -19,6 +19,7 @@ Fault injection (in the prompt / text, so tests stay declarative):
   [[fail]]        generation fails            [[timeout]]     never completes
   [[ratelimit]]   first submit is rate-limited [[reject]]      the fixture judge rejects
   [[judge_error]] the fixture judge raises    [[ambiguous]]   submit raises AmbiguousSubmission once
+  [[silent]]      the fixture TTS returns a silent waveform (missing audio)
   [[always_reject]] the judge rejects every attempt ([[reject]] is removed by its revised prompt)
 """
 
@@ -234,7 +235,8 @@ class FixtureTTSProvider(Provider):
         rid = f"tts_{uuid.uuid4().hex[:10]}"
         out = workdir / f"{rid}.wav"
         avtools.run(["-f", "lavfi", "-i", f"sine=frequency={freq}:sample_rate=48000:duration={dur}",
-                     "-af", "volume=0.3,afade=t=in:d=0.05,afade=t=out:st=" + f"{max(0, dur - 0.08):.3f}:d=0.08",
+                     "-af", ("volume=0" if "[[silent]]" in text else "volume=0.3")
+                     + ",afade=t=in:d=0.05,afade=t=out:st=" + f"{max(0, dur - 0.08):.3f}:d=0.08",
                      "-ac", "1", str(out)])
         return SubmitResult(rid, Output(out, "audio/wav", usage={"characters": len(text)}, meta={"fixture_tone": True}))
 

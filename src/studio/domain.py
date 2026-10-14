@@ -128,7 +128,8 @@ def create_series_from_template(store: Store, template_id: str = "hanoi_delivery
     project = create_project(store, name or t["series_title"], kind=t.get("kind", "series"), mode=mode,
                              budget_limit_usd=budget_limit_usd,
                              settings={"aspect": t.get("aspect", "9:16"), "language": t.get("language", "vi"),
-                                       "global_style": t.get("global_style", ""), "template_id": template_id})
+                                       "global_style": t.get("global_style", ""), "template_id": template_id,
+                                       **(t.get("settings") or {})})
     for a in t["assets"]:
         data = {k: v for k, v in a.items() if k not in ("kind", "name")}
         add_asset(store, project["id"], a["kind"], a["name"], data)

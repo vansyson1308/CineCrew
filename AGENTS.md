@@ -24,7 +24,7 @@ python run_dataset_story.py our_dataset/BetterCallSaul2
 
 - Needs a real LLM key; the run costs tokens (~10–15 LLM calls per story).
 - Outputs go to `data/runs/dataset/<story>/<run_id>/` (gitignored).
-- There is no test suite. The cheap sanity checks are:
+- Tests: `python -m pytest tests -q` (offline, no network; needs ffmpeg). CineCrew Studio (`src/studio`, `studio-ui`) is documented in `docs/studio/PLAN.md`. Other cheap sanity checks:
   - `python -c "import src.pipeline, src.adapters"` (imports + config load)
   - Build jobs offline from a shipped example (no LLM):
     ```python

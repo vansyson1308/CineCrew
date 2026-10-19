@@ -44,6 +44,12 @@ sheets, keyframe, voice and one Veo clip under a hard $10 ledger cap, reviews th
 the ledger and the readiness, and exports a labelled MP4 with its manifest. Expected order of magnitude
 (not verified against current price pages): a few dollars, dominated by one 8 s Veo clip.
 
+## Alternative provider line-up (huobao-drama)
+
+Seedance 2.0 / MiniMax H3 / Wan 3.0 video, Seedream / Gemini images, MiniMax speech, with an optional one-key
+gateway: `STUDIO_PROVIDERS=configs/studio/providers.huobao.yaml`. Details, license note and limits:
+[HUOBAO_INTEGRATION.md](HUOBAO_INTEGRATION.md). OFFLINE-verified only.
+
 ## Offline engineering gate (brief §Acceptance)
 
 | # | Criterion | Status | Evidence |

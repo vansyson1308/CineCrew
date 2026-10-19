@@ -1,0 +1,74 @@
+# CineCrew Studio — the huobao-drama backend line-up (Seedance 2.0 / MiniMax H3 / Wan 3.0 video,
+# Seedream / Gemini / gpt-image images, MiniMax speech). Select it with:
+#
+#   STUDIO_PROVIDERS=configs/studio/providers.huobao.yaml
+#
+# Credentials (env / .env only, never in this file). For each provider the direct key wins; without it
+# HUOBAO_API_KEY routes the same request through the Huobao gateway (HUOBAO_BASE_URL, default
+# https://api.firemux.com; https://api.firemux.cn for the mainland node) under the provider's path:
+#   seedance, seedream-image  ARK_API_KEY        (BytePlus ModelArk; Volcengine: base_url_env ARK_BASE_URL)  gateway /volcengine
+#   minimax-video, minimax-tts MINIMAX_API_KEY   (api.minimax.io)                                            gateway /minimax
+#   wan-video                 DASHSCOPE_API_KEY  + DASHSCOPE_BASE_URL (your {WorkspaceId}.<region>.maas.aliyuncs.com) gateway /qwen
+#   gemini-image              GEMINI_API_KEY     (generativelanguage.googleapis.com)                          gateway (root)
+#   openai-image              T2I_API_KEY / LLM_API_KEY                                                       gateway /v1
+#
+# The same safety rules as providers.yaml apply: live mode, a project budget, credentials AND a price.
+# A null price blocks that paid operation. The prices below are the providers' DIRECT international list
+# prices read on 2026-10-19 (sources next to each entry). Gateway (HUOBAO_API_KEY) prices are not published
+# in readable form: if you route through the gateway, check its price page and edit these numbers.
+# `usd_per_1m_tokens` (Seedance) settles the ledger from the token usage the task reports; `usd` per
+# second is the up-front reservation (Seedance: 720p 24 fps = 720*1280*24/1024 = 21 600 tokens/s).
+
+live:
+  image:
+    provider: seedream-image
+    model: seedream-4-5-251128          # BytePlus id; Volcengine: doubao-seedream-4-5-251128
+    size_portrait: "1440x2560"
+    size_landscape: "2560x1440"
+    # $0.04/image — https://ai.byteplus.com/ark/region:ap-southeast-1/docs/model-pricing
+    price: {unit: image, usd: 0.04, max_usd_per_call: null}
+    # provider: gemini-image  |  model: gemini-3.1-flash-image  |  size_portrait: "768x1344"  |  size_landscape: "1344x768"
+    # provider: openai-image  |  model: gpt-image-2             |  size_portrait: "1024x1536" |  size_landscape: "1536x1024"
+  video:
+    provider: seedance
+    model: dreamina-seedance-2-0-fast-260128   # BytePlus id; Volcengine: doubao-seedance-2-0-fast-260128
+    size_portrait: "720x1280"
+    size_landscape: "1280x720"
+    generate_audio: false                # the studio mixes its own voices; native audio costs more and is dropped
+    video_mode: first_frame              # first_frame = I2V from the approved keyframe (default);
+                                         # references = asset sheets + keyframe as reference images, no first frame
+    # fast: $5.6 per 1M output tokens (no video input) => 21 600 tok/s x $5.6/1M = $0.121/s at 720p
+    # https://ai.byteplus.com/ark/region:ap-southeast-1/docs/model-pricing
+    price: {unit: second, usd: 0.13, max_usd_per_call: null, usd_per_1m_tokens: 5.6}
+    # provider: minimax-video  | model: MiniMax-H3   | size_portrait: "768x1366" | size_landscape: "1366x768"
+    #   price {unit: second, usd: 0.08}  (768P; 2K $0.13/s) — https://platform.minimax.io/docs/pricing/overview.md
+    # provider: wan-video      | model: wan3.0-video | size_portrait: "720x1280" | size_landscape: "1280x720"
+    #   price {unit: second, usd: 0.10}  (720P Singapore; 1080P $0.20/s) — DASHSCOPE_BASE_URL = your workspace host
+    #   https://www.alibabacloud.com/help/en/model-studio/wan3-0-video   (2-30 s per clip)
+    # Every one of them: first frame OR reference images, never both (documented); see video_mode above.
+  tts:
+    provider: minimax-tts
+    model: speech-2.8-hd
+    # $1.00 per 10k characters (hd; turbo $0.60) — https://platform.minimax.io/docs/pricing/overview.md
+    price: {unit: 1k_chars, usd: 0.10, max_usd_per_call: null}
+    # Planned voice names (templates use OpenAI names) -> MiniMax voice_id. An unmapped (null) voice is refused
+    # before any call. Pick ids from the MiniMax voice list (POST /v1/get_voice, free) for each character.
+    voice_map:
+      alloy: Vietnamese_kindhearted_girl   # narrator (hanoi_delivery / brand_mooncake)
+      verse: null                          # Minh — young Hanoi man
+      sage: null                           # Bà Tư — elderly Hanoi woman
+      coral: null                          # brand_mooncake shop owner
+    # provider: openai-tts | model: gpt-4o-mini-tts   (TTS_API_KEY / LLM_API_KEY)
+  judge:
+    provider: vlm-judge                  # vision chat model behind LLM_* (any OpenAI-compatible endpoint)
+    price: {unit: call, usd: null, max_usd_per_call: null}   # depends on the LLM you choose: set a per-call cap
+  planning:
+    max_usd_per_episode: null
+    input_usd_per_1m_tokens: null
+    output_usd_per_1m_tokens: null
+
+offline_fixture:
+  image: {price: {unit: image, usd: 0.0}}
+  video: {price: {unit: second, usd: 0.0}, latency_seconds: 0.4}
+  tts: {price: {unit: 1k_chars, usd: 0.0}}
+  judge: {price: {unit: call, usd: 0.0}}

@@ -590,10 +590,31 @@ class Engine:
             req = {"prompt": prompt, "negative_prompt": spec.get("negative_prompt"), "duration": slot,
                    "size": spec["size"], "seed": seed, "label": spec.get("label"),
                    "image": str(self.media.path(kf_att["media_sha"])) if kf_att else None}
+            refs = self._video_references(project, ep, kf)
+            if refs:
+                req["reference_images"] = refs
             material = {**req, "image": None, "image_sha": kf_att["media_sha"] if kf_att else None,
                         "speech": speech}
+            if refs:
+                material["reference_images"] = [{"label": r["label"], "sha": r["sha"]} for r in refs]
             return req, material
         raise ValueError(job["kind"])
+
+    def _video_references(self, project, ep, kf_job) -> List[Dict[str, Any]]:
+        """Canonical sheets of the shot's assets, for video backends that take reference images alongside the
+        prompt (Seedance / MiniMax / Wan). Backends without that capability get none, so their requests and
+        input hashes are unchanged."""
+        prov = self.provider_for(project, "video")
+        if not (prov.caps.max_reference_images and getattr(prov, "video_asset_references", False)) or not kf_job:
+            return []
+        names = {a["data"]["asset_id"]: a["name"] for a in self.store.q(
+            "SELECT * FROM assets WHERE project_id = ?", (ep["project_id"],))}
+        refs = []
+        for aid in kf_job["spec"].get("references", []):
+            sha = self._asset_media(ep, aid)
+            if sha:
+                refs.append({"label": f"{names.get(aid, aid)} <{aid}>", "sha": sha, "path": str(self.media.path(sha))})
+        return refs
 
     def speech_durations(self, ep, shot_id: str) -> Dict[str, float]:
         out = {}

@@ -24,8 +24,22 @@ PROVIDERS_YAML = _ROOT / "configs" / "studio" / "providers.yaml"
 
 
 def load_provider_config(path: Optional[Path] = None) -> Dict[str, Any]:
-    with open(path or PROVIDERS_YAML, encoding="utf-8") as f:
+    """providers.yaml, or the file named by STUDIO_PROVIDERS (e.g. configs/studio/providers.huobao.yaml)."""
+    path = path or (Path(os.environ["STUDIO_PROVIDERS"]) if os.getenv("STUDIO_PROVIDERS") else PROVIDERS_YAML)
+    if not path.is_absolute() and not path.exists():
+        path = _ROOT / path
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+# providers.yaml `provider:` name -> class in multiref.py (the huobao-drama backend line-up)
+MULTIREF = {"seedance": "SeedanceVideoProvider", "minimax-video": "MiniMaxVideoProvider",
+            "wan-video": "WanVideoProvider", "seedream-image": "SeedreamImageProvider",
+            "gemini-image": "GeminiImageProvider", "minimax-tts": "MiniMaxTTSProvider"}
+
+
+def _huobao_base() -> str:
+    return (_env("HUOBAO_BASE_URL") or "https://api.firemux.com").rstrip("/")
 
 
 def _env(*names: str) -> str:
@@ -62,13 +76,20 @@ class Registry:
             if kind == "judge":
                 return FixtureJudgeProvider(price)
             raise KeyError(kind)
-        from . import live
+        from . import live, multiref
         cfg = (self.config.get("live") or {}).get(kind) or {}
         price, name = cfg.get("price"), cfg.get("provider")
         llm_key = _env("LLM_API_KEY", "OPENAI_API_KEY")
+        if name in MULTIREF:
+            cls = getattr(multiref, MULTIREF[name])
+            if cls.kind != kind:
+                raise NotConfigured(f"provider {name!r} serves {cls.kind}, not {kind}")
+            return cls(cfg.get("model") or "", cfg, price)
         if kind == "image" and name == "openai-image":
-            return live.OpenAIImageProvider(cfg.get("model", "gpt-image-1"), _env("T2I_API_KEY") or llm_key,
-                                            _env("T2I_BASE_URL") or None, price)
+            key, base = _env("T2I_API_KEY") or llm_key, _env("T2I_BASE_URL") or None
+            if not key and _env("HUOBAO_API_KEY") and cfg.get("gateway", True):
+                key, base = _env("HUOBAO_API_KEY"), _huobao_base() + "/v1"
+            return live.OpenAIImageProvider(cfg.get("model", "gpt-image-1"), key, base, price)
         if kind == "video" and name == "veo":
             return live.VeoVideoProvider(cfg.get("model", "veo-3.1-generate-preview"),
                                          _env("VEO_API_KEY", "GEMINI_API_KEY"), price)

@@ -17,6 +17,8 @@ CineCrew Studio command line.
 
 import argparse
 import json
+import math
+import os
 import shutil
 import sys
 import threading
@@ -133,6 +135,56 @@ def _canary(args):
         print("export:", ex["status"], ex["files"]["film"])
 
 
+def _providers(args):
+    """Which live backend serves each kind, through which route, with or without a key and a price."""
+    from .providers import NotConfigured, Registry, load_provider_config
+    reg = Registry("live", Path(args.home or default_home()) / "provider_state", load_provider_config())
+    for kind in ("image", "video", "tts", "judge"):
+        try:
+            prov = reg.get(kind)
+        except NotConfigured as e:
+            print(f"{kind:6s} NOT CONFIGURED: {e}")
+            continue
+        d = prov.describe()
+        key = bool(getattr(prov, "api_key", None)) if kind != "judge" else bool(os.getenv("LLM_API_KEY"))
+        print(f"{kind:6s} {d['name']:16s} model={d['model']}  route={d.get('route', 'direct')}  "
+              f"key={'yes' if key else 'MISSING'}  price={'set' if prov.estimate_cost({'duration': 1, 'text': 'x'}) is not None else 'MISSING (blocks paid calls)'}")
+
+
+def _estimate(args):
+    """
+    Cost range of a film of --minutes on the configured live prices, before any call is made.
+    low = every job accepted on its first attempt; high = every job uses all its attempts (max_attempts).
+    With --budget, the longest film that fits under the budget in the worst case.
+    """
+    from .providers import NotConfigured, Registry, load_provider_config
+    reg = Registry("live", Path(args.home or default_home()) / "provider_state", load_provider_config())
+    shots = math.ceil(args.minutes * 60 / args.shot_seconds)
+    chars = args.minutes * 60 * args.speech_chars_per_second
+    unit = {}
+    try:
+        unit["image"] = reg.get("image").estimate_cost({})
+        unit["video"] = reg.get("video").estimate_cost({"duration": args.shot_seconds})
+        unit["tts"] = reg.get("tts").estimate_cost({"text": "x" * int(chars / max(shots, 1))})
+        unit["judge"] = reg.get("judge").estimate_cost({})
+    except NotConfigured as e:
+        sys.exit(f"provider not configured: {e}")
+    missing = [k for k, v in unit.items() if v is None]
+    if {"image", "video"} & set(missing):
+        sys.exit(f"price missing for {missing} in the providers file: cannot estimate (and paid calls stay blocked)")
+    unit = {k: (v or 0.0) for k, v in unit.items()}
+    per_try = shots * (unit["image"] + unit["video"] + unit["tts"] + 2 * unit["judge"])
+    refs = args.assets * unit["image"]
+    low, high = per_try + refs, per_try * args.max_attempts + refs * args.max_attempts
+    out = {"minutes": args.minutes, "shots": shots, "unit_usd": unit, "low_usd": round(low, 2), "high_usd": round(high, 2),
+           "basis": "configured prices; planning LLM not included",
+           "not_priced_excluded": missing}
+    if args.budget:
+        per_min_high = (high - refs * args.max_attempts) / args.minutes
+        out["max_minutes_worst_case"] = round(max(0.0, (args.budget - refs * args.max_attempts) / per_min_high), 1)
+    print(json.dumps(out, indent=2))
+
+
 def _status(args):
     s = Studio(args.home)
     for p in s.store.q("SELECT * FROM projects ORDER BY created_at"):
@@ -158,8 +210,17 @@ def main(argv=None):
     cp.add_argument("--budget", type=float, required=True)
     cp.add_argument("--timeout", type=float, default=3600)
     sub.add_parser("status")
+    sub.add_parser("providers")
+    ep = sub.add_parser("estimate")
+    ep.add_argument("--minutes", type=float, required=True)
+    ep.add_argument("--shot-seconds", type=float, default=8.0)
+    ep.add_argument("--speech-chars-per-second", type=float, default=12.0)
+    ep.add_argument("--assets", type=int, default=6, help="reference sheets to render once per series")
+    ep.add_argument("--max-attempts", type=int, default=2)
+    ep.add_argument("--budget", type=float, default=0.0)
     args = ap.parse_args(argv)
-    {"serve": _serve, "worker": _worker, "demo": _demo, "canary": _canary, "status": _status}[args.cmd](args)
+    {"serve": _serve, "worker": _worker, "demo": _demo, "canary": _canary, "status": _status,
+     "providers": _providers, "estimate": _estimate}[args.cmd](args)
 
 
 if __name__ == "__main__":

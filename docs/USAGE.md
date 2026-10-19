@@ -223,6 +223,7 @@ python -m src.studio canary --budget 3        # LIVE: one shot on the configured
 Offline fixture mode is the default for new projects: deterministic stand-in providers whose output is
 stamped "OFFLINE FIXTURE". It proves the plumbing, never model quality. Live mode needs credentials, a project
 budget, and prices in `configs/studio/providers.yaml` (a null price blocks that paid call).
+Alternative line-up (Seedance / MiniMax / Wan, one-key gateway): `STUDIO_PROVIDERS=configs/studio/providers.huobao.yaml`, see `docs/studio/HUOBAO_INTEGRATION.md`.
 
 ## Repository layout
 

@@ -61,10 +61,10 @@ gateway publishes no readable API docs or prices, so this route is UNCONFIRMED**
 | Limit | Value | Source |
 |---|---|---|
 | One clip | Seedance/MiniMax 15 s, Wan 30 s | provider docs |
-| One episode, export | 10 min (60 shots): render 88 s + export 226 s, 405 MB RAM, 4 CPU, all checks pass | **measured OFFLINE** (fixture media) |
+| One episode, export | 10 min (60 shots): render 88 s + export 226 s, 405 MB RAM; 30 min (180 shots): render 343 s + export 677 s, 415 MB RAM; 4 CPU, all checks pass, 1080x1920 | **measured OFFLINE** (fixture media) |
 | One episode, planning | ≤ 10 000 script characters per DSL segment (`limits.script_segment_dsl`) | config |
 | Whole film | N episodes, no pipeline cap | design |
-| Money | Seedance 2.0 fast 720p ≈ $0.121/s of clip (21 600 tok/s × $5.6/1M) | price page + arithmetic |
+| Money | Seedance 2.0 fast 720p ≈ $0.121/s of clip (21 600 tok/s × $5.6/1M); `estimate --minutes 10`: $82 first-try, $164 if every job retries once (images + video + voice; judge and planning excluded) | price page + arithmetic |
 
 ## Offline QC
 

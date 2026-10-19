@@ -217,4 +217,5 @@ def _closest_size(size: str, allowed: List[str]) -> str:
         return int(w), int(h)
     w, h = wh(size)
     ar = w / h
-    return min(allowed, key=lambda s: (abs(wh(s)[0] / wh(s)[1] - ar), abs(wh(s)[0] * wh(s)[1] - w * h)))
+    # same aspect (to 1%), then the nearest pixel count: 720x1280 must map to 768x1366, not to a 2K tier
+    return min(allowed, key=lambda s: (round(abs(wh(s)[0] / wh(s)[1] - ar) / ar, 2), abs(wh(s)[0] * wh(s)[1] - w * h)))

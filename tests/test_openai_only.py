@@ -69,12 +69,12 @@ def test_openai_profile_builds_one_key_lineup(tmp_path, monkeypatch):
     img, vid, tts, jdg = (reg.get(k) for k in ("image", "video", "tts", "judge"))
     assert (img.name, img.model, img.api_key, img.quality) == ("openai-image", "gpt-image-2", "sk-test", "medium")
     assert (vid.name, vid.is_fixture, vid.review_clips) == ("motion-still", False, False)
-    assert (tts.name, tts.api_key) == ("openai-tts", "sk-test")
+    assert (tts.name, tts.model) == ("vieneu-tts", "v3turbo")          # local Vietnamese voice, $0
     assert (jdg.name, jdg.model) == ("vlm-judge", "gpt-6.1-terra")
     assert reg.size_for("video", "9:16") == "1080x1920"
     # every paid kind has a ceiling price (no null = no blocked call), video is free
     assert img.estimate_cost({}) == 0.10 and vid.estimate_cost({"duration": 8}) == 0.0
-    assert tts.estimate_cost({"text": "x" * 1000}) == pytest.approx(0.03) and jdg.estimate_cost({}) == 0.03
+    assert tts.estimate_cost({"text": "x" * 1000}) == 0.0 and jdg.estimate_cost({}) == 0.03
     # gpt-image-2 settles from the tokens the API reports
     usd, basis = img.actual_cost({}, {"input_tokens": 2000, "output_tokens": 4000})
     assert usd == pytest.approx(2000 / 1e6 * 4 + 4000 / 1e6 * 15) and "usage" in basis

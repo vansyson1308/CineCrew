@@ -48,7 +48,9 @@ the ledger and the readiness, and exports a labelled MP4 with its manifest. Expe
 
 `STUDIO_PROVIDERS=configs/studio/providers.openai.yaml`: gpt-image-2 frames, gpt-4o-mini-tts voices, OpenAI
 judge, clips made locally by `motion-still` (camera move over the keyframe; OpenAI's video API is shut down).
-See [OPENAI_ONLY.md](OPENAI_ONLY.md). OFFLINE-verified only.
+See [OPENAI_ONLY.md](OPENAI_ONLY.md). Voices default to local VieNeu-TTS. With a GPU,
+`providers.openai_gpu.yaml` routes dialogue shots to a lip-sync model and action shots to an image-to-video model
+in ComfyUI: [MOTION_LIPSYNC.md](MOTION_LIPSYNC.md). OFFLINE-verified only.
 
 ## Alternative provider line-up (huobao-drama)
 

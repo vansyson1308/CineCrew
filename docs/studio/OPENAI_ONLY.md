@@ -21,7 +21,7 @@ film from OpenAI frames + OpenAI voices, and does the camera work locally.
 |---|---|---|
 | Script → FilmDSL (CineCrew crew) | OpenAI chat, `LLM_MODEL` (e.g. `gpt-6.1-terra`) | tokens |
 | Reference sheets + 1 keyframe per shot | `gpt-image-2` (keyframes go to `/images/edits` with the asset sheets as references: same faces every shot) | ceiling $0.10/image, settled from returned token usage |
-| Dialogue + narration (Vietnamese) | `gpt-4o-mini-tts`, voice + `instructions` | ceiling $0.03 / 1k chars |
+| Dialogue + narration (Vietnamese) | VieNeu-TTS v3 Turbo, local (`pip install vieneu`); `gpt-4o-mini-tts` optional | $0 |
 | Review of sheets and keyframes | OpenAI vision chat (`judge.model`) | ceiling $0.03/call |
 | Clip | **`motion-still`** (`src/studio/providers/motion.py`): the approved keyframe + a camera move from FilmDSL `camera.movement` (push-in, pull-out, pan, tilt, slow "breathing" push for static) rendered with ffmpeg at 1080x1920 | $0 |
 | Edit, subtitles, mix, export | existing `src/studio/export.py` (ffmpeg) | $0 |
@@ -32,6 +32,7 @@ moves over was already judged. They still get a file check (decodes, duration, n
 ## Run
 
 ```bash
+pip install vieneu                         # local Vietnamese voices (first run downloads the weights)
 export OPENAI_API_KEY=sk-...              # the only key
 export LLM_MODEL=gpt-6.1-terra
 export STUDIO_PROVIDERS=configs/studio/providers.openai.yaml
@@ -42,8 +43,8 @@ python -m src.studio canary --budget 10   # ONE shot, real calls, hard $10 cap
 
 ## Cost and length
 
-`estimate` uses the ceilings above (no planning LLM): **$1.28/min first try, $2.56/min if every job retries
-once**; 10 min = $12.8 to $25.6; a $10 budget covers ≥ 3.6 min in the worst case. The real bill should be
+`estimate` uses the ceilings above (no planning LLM): **$1.26/min first try, $2.52/min if every job retries
+once**; 10 min = $12.6 to $25.2; a $10 budget covers ≥ 3.7 min in the worst case. The real bill should be
 lower: the ceilings assume ~$0.10 per image, while gpt-image-2 lists $15 per 1M output tokens (the
 per-image token count for 1024x1536 is not on the pages we could read; the canary measures it).
 For comparison the Seedance line-up (PR #2) is ≈ $8 to $16 per minute.
@@ -53,9 +54,7 @@ TTS call ≤ 4096 chars; clip length is unlimited for `motion-still`.
 
 ## Known limits (honest)
 
-- **No character motion**: people do not walk or move their lips; it is a motion comic / "Ken Burns" film.
-  Mouths do not sync. Optional next step: a second keyframe per shot (end state) cross-faded, ≈ +$0.1/shot.
+- **No character motion with this profile**: people do not walk or move their lips (motion comic). With a GPU,
+  `providers.openai_gpu.yaml` adds lip-synced dialogue shots and moving action shots: see MOTION_LIPSYNC.md.
 - Keyframes are 2:3 (1024x1536) and are cover-cropped to 9:16: a sliver of the top and bottom is cut.
-- `gpt-4o-mini-tts` is deprecated (2027-01-06). When OpenAI names a successor for `/audio/speech`, change
-  `tts.model`; nothing else changes.
 - Prices for images and TTS are ceilings, not measured; first canary settles them.

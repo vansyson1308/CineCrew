@@ -76,9 +76,25 @@ class Registry:
             if kind == "judge":
                 return FixtureJudgeProvider(price)
             raise KeyError(kind)
-        from . import live, multiref
         cfg = (self.config.get("live") or {}).get(kind) or {}
+        return self.build_live(kind, cfg)
+
+    def build_live(self, kind: str, cfg: Dict[str, Any]) -> Provider:
+        """One live provider from its providers-file block (also used for each route of a shot-router)."""
+        from . import live, multiref
         price, name = cfg.get("price"), cfg.get("provider")
+        if kind == "video" and name == "shot-router":
+            from .router import ShotRouterVideoProvider
+            routes = {rn: self.build_live("video", rc) for rn, rc in (cfg.get("routes") or {}).items()}
+            if not routes:
+                raise NotConfigured("shot-router needs `routes`")
+            return ShotRouterVideoProvider(routes, cfg.get("by_kind") or {}, cfg.get("default") or next(iter(routes)))
+        if kind == "video" and name == "comfyui":
+            from .comfyui import ComfyUIVideoProvider
+            return ComfyUIVideoProvider(cfg.get("model") or "", cfg, price)
+        if kind == "tts" and name == "vieneu-tts":
+            from .vieneu import VieNeuTTSProvider
+            return VieNeuTTSProvider(cfg.get("model") or "v3turbo", cfg, price)
         llm_key = _env("LLM_API_KEY", "OPENAI_API_KEY")
         if name in MULTIREF:
             cls = getattr(multiref, MULTIREF[name])

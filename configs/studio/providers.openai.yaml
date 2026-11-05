@@ -8,7 +8,7 @@
 #   planning  OpenAI chat model (LLM_MODEL)       script -> FilmDSL blueprint (the CineCrew crew)
 #   image     OpenAI Images gpt-image-2           asset reference sheets + one keyframe per shot (/images/edits
 #                                                 with the sheets as references => same faces in every shot)
-#   tts       OpenAI /audio/speech gpt-4o-mini-tts  dialogue + narration, Vietnamese via `instructions`
+#   tts       VieNeu-TTS v3 Turbo (LOCAL, $0)      dialogue + narration in natural Vietnamese (OpenAI TTS optional)
 #   judge     OpenAI vision chat model             reviews sheets and keyframes against the references
 #   video     motion-still (LOCAL ffmpeg, $0)      camera move over the approved keyframe. OpenAI's video API
 #                                                 (Sora 2, /v1/videos) was shut down 2026-09-24 with no
@@ -20,9 +20,8 @@
 #     The per-image token count for 1024x1536 is NOT on the pages we could read, so `usd` below is a
 #     conservative RESERVATION per image; the ledger settles from the `usage` tokens the API returns
 #     (input priced at the image-input rate, the higher of the two). The canary measures the real number.
-#   gpt-4o-mini-tts: no price on the current pages (model is deprecated, shutdown 2027-01-06). The
-#     reservation below assumes <= $0.03 per 1 000 characters (about one spoken minute of Vietnamese);
-#     the historical list price was about $0.015 per minute. Replace once the canary measures it.
+#   gpt-4o-mini-tts (optional): no price on the current pages (deprecated, shutdown 2027-01-06); a $0.03 per
+#     1 000 characters ceiling is used if you switch back to it.
 #   gpt-6.1-terra: $1 input / $5 output per 1M tokens (judge and planning).
 # A null price blocks that paid operation; every number here is a ceiling, not a guess of the bill.
 
@@ -44,9 +43,24 @@ live:
     motion_strength: 0.12              # zoom / travel as a fraction of the frame
     price: {unit: second, usd: 0.0}
   tts:
-    provider: openai-tts
-    model: gpt-4o-mini-tts
-    price: {unit: 1k_chars, usd: 0.03, max_usd_per_call: null}
+    provider: vieneu-tts               # VieNeu-TTS v3 Turbo, local, Apache-2.0, $0 (`pip install vieneu`)
+    model: v3turbo                     # v3nano = faster on weak CPUs, lower quality, 24 kHz
+    route: sdk                         # sdk = in-process; server = VieNeu's OpenAI-shaped server at VIENEU_BASE_URL
+    engine: {precision: fp32}          # fp32 (best) | int8 (~1.6x faster, needs a VNNI CPU)
+    price: {unit: 1k_chars, usd: 0.0}
+    # Planned voice (templates use OpenAI names) -> VieNeu preset name, or clone:<path to a 3-8 s clip of the
+    # voice you want>. Presets (README): Hải Đăng (default), Thiện Minh, Mai Anh, Thùy Dung, Ngọc Huyền, Quang Sơn,
+    # Ngọc Trân, Trúc Ly, Adam bựa, Thiền Tâm Đức; North: Minh Đức, Phạm Tuyên, Xuân Vĩnh, Thanh Bình, Ngọc Linh,
+    # Đoan Trang, Quỳnh Anh, Quốc Tuấn; Central: Quang Sơn, Ngọc Trân; South: Adam, Thái Sơn, Thục Đoan, Minh Triết,
+    # Mỹ Duyên, Đức Trí, Kim Thanh. Listen before a real episode: choices below are a first guess by name/region.
+    # A clone clip per character gives the steadiest voice across a series (e.g. an old Hanoi woman for Bà Tư).
+    voice_map:
+      alloy: "Hải Đăng"                # narrator
+      verse: "Quốc Tuấn"               # Minh — young Hanoi man (Northern preset)
+      sage: "Đoan Trang"               # Bà Tư — elderly Hanoi woman: better a clone: clip
+      coral: "Ngọc Linh"               # chị Lan (brand_mooncake)
+    # OpenAI voice instead (paid, deprecated 2027-01-06):
+    # provider: openai-tts | model: gpt-4o-mini-tts | price: {unit: 1k_chars, usd: 0.03}
   judge:
     provider: vlm-judge
     model: gpt-6.1-terra               # JUDGE_MODEL overrides; any OpenAI vision chat model

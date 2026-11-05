@@ -11,8 +11,8 @@
 
 live:
   image:
-    provider: openai-image            # OpenAI gpt-image-1  (T2I_API_KEY, falls back to LLM_API_KEY)
-    model: gpt-image-1
+    provider: openai-image            # OpenAI gpt-image-2 (gpt-image-1 shut down 2026-10-23; T2I_API_KEY, falls back to LLM_API_KEY)
+    model: gpt-image-2
     size_portrait: "1024x1536"
     size_landscape: "1536x1024"
     price: {unit: image, usd: null, max_usd_per_call: null,

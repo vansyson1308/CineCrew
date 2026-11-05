@@ -458,6 +458,14 @@ class Engine:
                                                         "levels": lv, "checks": "duration > 0.2 s, not silent"}
         if not project["settings"].get("review", True):
             return "unreviewed", {"source": "none", "note": "review disabled in project settings"}
+        prov = self.provider_for(project, job["kind"])
+        if job["kind"] == "video" and getattr(prov, "review_clips", True) is False:
+            # a deterministic camera move over the already-reviewed keyframe: check the file, skip the paid judge
+            info = attempt["media_meta"] or {}
+            ok = info.get("duration", 0) > 0.2 and info.get("width") and not avtools.black_segments(path, 1.0)
+            return ("accepted" if ok else "rejected"), {
+                "source": "auto_check", "checks": "decodes, duration > 0.2 s, no black segment >= 1 s",
+                "note": f"{prov.name}: camera move over the reviewed keyframe; no clip judge call"}
         return self._review(job, project, attempt)
 
     def _review(self, job, project, attempt) -> Tuple[str, Dict[str, Any]]:
@@ -593,6 +601,11 @@ class Engine:
             refs = self._video_references(project, ep, kf)
             if refs:
                 req["reference_images"] = refs
+            if "camera_movement" in self.provider_for(project, "video").caps.accepted_fields:
+                bp = load_blueprint(ep)
+                shot = next((s for s in bp.shots if s.shot_id == job["shot_id"]), None)
+                cam = shot.staging_layer.camera.movement if shot and shot.staging_layer else None
+                req["camera_movement"] = cam or "static"
             material = {**req, "image": None, "image_sha": kf_att["media_sha"] if kf_att else None,
                         "speech": speech}
             if refs:

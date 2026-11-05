@@ -9,11 +9,12 @@
 Live (paid) provider adapters. Each one follows the provider's official documentation, read on
 2026-10-14 (URLs in `caps.docs`), and declares exactly the fields it sends.
 
-  OpenAIImageProvider        gpt-image-1 via /images/generations and /images/edits (references)
+  OpenAIImageProvider        gpt-image-2 (gpt-image-1 was shut down 2026-10-23) via /images/generations and /images/edits (references)
   VeoVideoProvider           Gemini API Veo 3.1 (predictLongRunning + operation polling)
   OpenAICompatVideoProvider  any self-hosted OpenAI-shaped /videos server (e.g. a Wan 2.2 wrapper);
                              its optional fields are whatever providers.yaml declares, nothing more.
                              (OpenAI's own Sora Videos API was shut down on 2026-09-24.)
+  (no-model clips: src/studio/providers/motion.py — camera move over the keyframe, ffmpeg, $0)
   OpenAITTSProvider          /audio/speech (gpt-4o-mini-tts), WAV out, duration measured afterwards
   VLMJudgeProvider           VisualJudgeAgent over a vision chat model, with the canonical reference
                              images attached as labelled pictures
@@ -64,9 +65,11 @@ class OpenAIImageProvider(Provider):
         docs="https://developers.openai.com/api/reference/python/resources/images/methods/edit",
     )
 
-    def __init__(self, model: str = "gpt-image-1", api_key: str = "", base_url: Optional[str] = None, price=None):
+    def __init__(self, model: str = "gpt-image-2", api_key: str = "", base_url: Optional[str] = None, price=None,
+                 quality: Optional[str] = None):
         super().__init__(price)
         self.model, self.api_key, self.base_url = model, api_key, base_url
+        self.quality = quality                     # providers file `image.quality` (low|medium|high|auto)
 
     def _client(self):
         if not self.api_key:
@@ -78,8 +81,8 @@ class OpenAIImageProvider(Provider):
         self.validate(request)
         client = self._client()
         kw: Dict[str, Any] = dict(model=self.model, prompt=request["prompt"], n=1, size=request.get("size", "1024x1536"))
-        if request.get("quality"):
-            kw["quality"] = request["quality"]
+        if request.get("quality") or self.quality:
+            kw["quality"] = request.get("quality") or self.quality
         try:
             refs = request.get("reference_images") or []
             if refs:
@@ -345,7 +348,7 @@ class VLMJudgeProvider(Provider):
 
     def __init__(self, model: Optional[str] = None, price=None):
         super().__init__(price)
-        self.model = model or os.getenv("JUDGE_MODEL") or os.getenv("LLM_MODEL") or "gpt-5"
+        self.model = os.getenv("JUDGE_MODEL") or model or os.getenv("LLM_MODEL") or "gpt-5"
 
     def submit(self, request, idempotency_key, workdir):
         from ...agents.dailies_reviewer.visual_judge import VisualJudgeAgent
@@ -358,6 +361,8 @@ class VLMJudgeProvider(Provider):
         for r in request.get("references") or []:
             refs.setdefault(r["label"], []).append(r["path"])
         judge = VisualJudgeAgent()
+        if self.model and not getattr(judge, "_model_override", None):
+            judge._model_override = self.model      # providers file `judge.model` / JUDGE_MODEL
         try:
             if request.get("media_kind") == "clip":
                 review = judge.review_clip(request["media"], shot, request["prompt"], request.get("global_style", ""),

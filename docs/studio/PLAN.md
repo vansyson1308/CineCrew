@@ -44,6 +44,14 @@ sheets, keyframe, voice and one Veo clip under a hard $10 ledger cap, reviews th
 the ledger and the readiness, and exports a labelled MP4 with its manifest. Expected order of magnitude
 (not verified against current price pages): a few dollars, dominated by one 8 s Veo clip.
 
+## One OpenAI key (openai-only)
+
+`STUDIO_PROVIDERS=configs/studio/providers.openai.yaml`: gpt-image-2 frames, gpt-4o-mini-tts voices, OpenAI
+judge, clips made locally by `motion-still` (camera move over the keyframe; OpenAI's video API is shut down).
+See [OPENAI_ONLY.md](OPENAI_ONLY.md). Voices default to local VieNeu-TTS. With a GPU,
+`providers.openai_gpu.yaml` routes dialogue shots to a lip-sync model and action shots to an image-to-video model
+in ComfyUI: [MOTION_LIPSYNC.md](MOTION_LIPSYNC.md). OFFLINE-verified only.
+
 ## Alternative provider line-up (huobao-drama)
 
 Seedance 2.0 / MiniMax H3 / Wan 3.0 video, Seedream / Gemini images, MiniMax speech, with an optional one-key

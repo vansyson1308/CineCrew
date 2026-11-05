@@ -135,6 +135,55 @@ def _canary(args):
         print("export:", ex["status"], ex["files"]["film"])
 
 
+def _episode(args):
+    """
+    LIVE episode of a template series under a hard USD budget, in two steps:
+      1. (default) reference sheets, keyframes and voices; stops at the storyboard for a human look
+         (prints every keyframe and voice file, the judge's verdicts and the money spent);
+      2. --approve: approves the storyboard, renders the clips, exports the film (final, or draft if allowed).
+    Re-running resumes the same project (cache: accepted work is never paid for twice).
+    """
+    from . import domain
+    if args.budget <= 0:
+        sys.exit("episode needs --budget > 0 (USD) — this run makes paid calls")
+    s = Studio(args.home)
+    t = domain.load_template(args.template)
+    proj = next((p for p in s.store.q("SELECT * FROM projects WHERE mode = 'live' ORDER BY created_at")
+                 if p["settings"].get("template_id") == args.template), None)
+    if proj is None:
+        proj = domain.create_project(s.store, t["series_title"], mode="live", budget_limit_usd=args.budget,
+                                     settings={"aspect": t.get("aspect", "9:16"), "language": t.get("language", "vi"),
+                                               "global_style": t.get("global_style", ""), "template_id": args.template})
+        for a in t["assets"]:
+            domain.add_asset(s.store, proj["id"], a["kind"], a["name"],
+                             {k: v for k, v in a.items() if k not in ("kind", "name")})
+    elif float(proj["budget_limit_usd"]) != args.budget:
+        proj = s.set_budget(proj["id"], args.budget)
+    spec = next(e for e in t["episodes"] if e["number"] == args.number)
+    ep = s.store.one("SELECT * FROM episodes WHERE project_id = ? AND number = ?", (proj["id"], args.number)) \
+        or domain.create_episode_from_spec(s.store, proj["id"], spec)
+    for kind in ("image", "video", "tts", "judge"):
+        prov = s.engine.provider_for(proj, kind)
+        print(f"{kind:6s} -> {prov.name} {prov.model}")
+    s.engine.recover()
+    s.engine.run_until_idle(proj["id"], timeout=args.timeout)
+    if args.approve:
+        s.approve_storyboard(ep["id"])
+        s.engine.run_until_idle(proj["id"], timeout=args.timeout)
+    r = s.engine.readiness(ep["id"])
+    jobs = []
+    for j in domain.jobs_for_episode(s.store, ep["id"]):
+        a = s.store.get("attempts", j["selected_attempt"]) if j["selected_attempt"] else None
+        jobs.append({"key": j["key"], "state": j["state"], "verdict": j["verdict"], "error": j["error"],
+                     "media": str(s.media.path(a["media_sha"])) if a and a["media_sha"] else None})
+    out = {"project": proj["id"], "episode": ep["id"], "readiness": r, "budget": s.engine.budget.summary(proj["id"]),
+           "jobs": jobs}
+    if args.approve and r["status"] in ("final", "draft"):
+        ex = s.export(ep["id"], allow_draft=args.allow_draft)
+        out["export"] = {"status": ex["status"], "files": ex["files"]}
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+
+
 def _providers(args):
     """Which live backend serves each kind, through which route, with or without a key and a price."""
     from .providers import NotConfigured, Registry, load_provider_config
@@ -209,6 +258,13 @@ def main(argv=None):
     cp = sub.add_parser("canary")
     cp.add_argument("--budget", type=float, required=True)
     cp.add_argument("--timeout", type=float, default=3600)
+    xp = sub.add_parser("episode", help="LIVE episode of a template series (storyboard first, then --approve)")
+    xp.add_argument("--template", default="dong_ho_547")
+    xp.add_argument("--number", type=int, default=1)
+    xp.add_argument("--budget", type=float, required=True, help="hard USD cap for the project")
+    xp.add_argument("--approve", action="store_true", help="approve the storyboard, render clips, export")
+    xp.add_argument("--allow-draft", action="store_true")
+    xp.add_argument("--timeout", type=float, default=3600)
     sub.add_parser("status")
     sub.add_parser("providers")
     ep = sub.add_parser("estimate")
@@ -220,7 +276,7 @@ def main(argv=None):
     ep.add_argument("--budget", type=float, default=0.0)
     args = ap.parse_args(argv)
     {"serve": _serve, "worker": _worker, "demo": _demo, "canary": _canary, "status": _status,
-     "providers": _providers, "estimate": _estimate}[args.cmd](args)
+     "providers": _providers, "estimate": _estimate, "episode": _episode}[args.cmd](args)
 
 
 if __name__ == "__main__":

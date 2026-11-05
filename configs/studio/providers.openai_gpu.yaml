@@ -1,0 +1,97 @@
+# CineCrew Studio — OpenAI frames + VieNeu voices + OPEN-WEIGHT VIDEO MODELS on a GPU (yours or rented).
+# Characters move and their lips follow the Vietnamese dialogue. Select it with:
+#
+#   STUDIO_PROVIDERS=configs/studio/providers.openai_gpu.yaml
+#   OPENAI_API_KEY=sk-...                    images, judge, planning (same as providers.openai.yaml)
+#   COMFYUI_BASE_URL=http://<gpu-host>:8188  your ComfyUI server (own GPU, or a rented pod)
+#
+# Each shot goes where its FilmDSL calls for (src/studio/providers/router.py):
+#   dialogue      -> `talking` workflow: keyframe + the shot's dialogue track -> lip-synced clip
+#                    (InfiniteTalk, Apache-2.0 / LongCat-Video-Avatar 1.5, MIT / Kandinsky S2V, MIT)
+#   action        -> `action` workflow: keyframe + staging prompt -> clip (Wan 2.2 I2V A14B or TI2V-5B, Apache-2.0)
+#   establishing  -> `still`: camera move over the keyframe, local ffmpeg, $0
+# The two workflows are YOUR ComfyUI exports ("Save (API)") with placeholders: docs/studio/MOTION_LIPSYNC.md.
+# Missing workflow file or COMFYUI_BASE_URL = that route refuses before any work (NotConfigured), never guesses.
+#
+# Cost of the GPU routes: on your own GPU, electricity (usd 0.0). On a rented GPU you pay per HOUR whether or
+# not it renders, so the ledger cannot see it exactly; put your measured $/second-of-clip in `price.usd` after
+# the first test (e.g. RunPod RTX 4090 $0.89/h, A100 80GB $1.79/h, H100 PCIe $2.89/h, list prices 2026-11-04).
+
+live:
+  image:
+    provider: openai-image
+    model: gpt-image-2                 # alternative: gpt-image-2.5-flare (2x the token price, newer)
+    quality: high                      # low | medium | high — high for a real episode (beauty matters)
+    size_portrait: "1024x1536"
+    size_landscape: "1536x1024"
+    price: {unit: image, usd: 0.20, max_usd_per_call: null,
+            input_usd_per_1m_tokens: 4.0, output_usd_per_1m_tokens: 15.0}
+  video:
+    provider: shot-router
+    size_portrait: "720x1280"          # what the talking / I2V models render; export scales to delivery size
+    size_landscape: "1280x720"
+    default: still
+    by_kind: {dialogue: talking, action: action, establishing: still}
+    routes:
+      talking:
+        provider: comfyui
+        workflow: configs/studio/comfyui/talking.json     # e.g. InfiniteTalk single-person I2V, 720p
+        base_url_env: COMFYUI_BASE_URL
+        fps: 25
+        frames_rule: "4n+1"            # Wan-family models want 4n+1 frames
+        min_duration: 1
+        max_duration: 60               # InfiniteTalk I2V is documented good to ~1 min per clip
+        price: {unit: second, usd: 0.0}
+      action:
+        provider: comfyui
+        workflow: configs/studio/comfyui/action.json      # e.g. Wan 2.2 I2V A14B (or TI2V-5B on a 24 GB card)
+        base_url_env: COMFYUI_BASE_URL
+        fps: 16                        # Wan 2.2 A14B native 16 fps (TI2V-5B: 24)
+        frames_rule: "4n+1"
+        min_duration: 1
+        max_duration: 5                # 81 frames; longer shots hold the last frame (recorded as an adaptation)
+        price: {unit: second, usd: 0.0}
+      still:
+        provider: motion-still
+        model: kenburns-v1
+        fps: 24
+        motion_strength: 0.12
+        price: {unit: second, usd: 0.0}
+  tts:
+    provider: vieneu-tts               # VieNeu-TTS v3 Turbo, local, Apache-2.0, $0 (`pip install vieneu`)
+    model: v3turbo                     # v3nano = faster on weak CPUs, lower quality, 24 kHz
+    route: sdk                         # sdk = in-process; server = VieNeu's OpenAI-shaped server at VIENEU_BASE_URL
+    engine: {precision: fp32}          # fp32 (best) | int8 (~1.6x faster, needs a VNNI CPU)
+    price: {unit: 1k_chars, usd: 0.0}
+    # Planned voice (templates use OpenAI names) -> VieNeu preset, or clone:<path to a 3-8 s clip>.
+    # Presets (gender, region, style; from srt-whiteboard-animation's voice list): Hải Đăng (m, Bắc, tự nhiên),
+    # Thiện Minh (m, Bắc, kể chuyện), Minh Đức (m, Bắc, tin tức), Thanh Bình (m, Bắc, kể chuyện), Quốc Tuấn (m, Bắc,
+    # tự nhiên), Minh Triết (m, Nam, tin tức), Thái Sơn (m, Nam, kể chuyện), Quang Sơn (m, Trung, tự nhiên),
+    # Mai Anh (f, Bắc, tin tức), Trúc Ly (f, Bắc, tự nhiên), Ngọc Linh (f, Bắc, kể chuyện), Đoan Trang (f, Bắc,
+    # tự nhiên), Thùy Dung (f, Nam, tin tức), Thục Đoan (f, Nam, kể chuyện), Ngọc Trân (f, Trung, tự nhiên).
+    # No preset is elderly: a clone: clip per old character gives the most convincing voice.
+    voice_map:
+      alloy: "Hải Đăng"                # narrator (hanoi_delivery, brand_mooncake)
+      verse: "Quốc Tuấn"               # Minh — young Hanoi man
+      sage: "Đoan Trang"               # Bà Tư — elderly Hanoi woman (better: clone:)
+      coral: "Trúc Ly"                 # chị Lan (brand_mooncake)
+      shimmer: "Ngọc Linh"             # Linh (dong_ho_547): same voice as her inner narration
+      nova: "Ngọc Linh"                # Linh's inner voice, narration (dong_ho_547)
+      ash: "Thanh Bình"                # Ông Khải — old Hanoi watchmaker (better: clone:)
+    takes: 3                           # redo a line whose spoken length is implausible (babble / swallowed words)
+    # OpenAI voice instead (paid, deprecated 2027-01-06):
+    # provider: openai-tts | model: gpt-4o-mini-tts | price: {unit: 1k_chars, usd: 0.03}
+  judge:
+    provider: vlm-judge
+    model: gpt-6.1-terra               # JUDGE_MODEL overrides; any OpenAI vision chat model
+    price: {unit: call, usd: 0.03, max_usd_per_call: null}
+  planning:
+    max_usd_per_episode: 1.0
+    input_usd_per_1m_tokens: 1.0
+    output_usd_per_1m_tokens: 5.0
+
+offline_fixture:
+  image: {price: {unit: image, usd: 0.0}}
+  video: {price: {unit: second, usd: 0.0}, latency_seconds: 0.4}
+  tts: {price: {unit: 1k_chars, usd: 0.0}}
+  judge: {price: {unit: call, usd: 0.0}}

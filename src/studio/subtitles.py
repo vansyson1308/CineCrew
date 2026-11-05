@@ -22,9 +22,35 @@ MAX_CPS = 20.0          # characters per second a viewer can read comfortably (i
 
 
 def wrap(text: str, max_chars: int, max_lines: int) -> List[List[str]]:
-    """Split text into cues of at most `max_lines` lines of `max_chars` characters (word boundaries)."""
-    lines = textwrap.wrap(" ".join(text.split()), width=max_chars, break_long_words=True) or [""]
-    return [lines[i:i + max_lines] for i in range(0, len(lines), max_lines)]
+    """Split text into cues of at most `max_lines` lines of `max_chars` characters (word boundaries).
+    When a line needs several cues they are balanced (no orphan last word on its own cue, which would flash by)
+    and prefer to break after punctuation."""
+    text = " ".join(text.split())
+    lines = textwrap.wrap(text, width=max_chars, break_long_words=True) or [""]
+    greedy = [lines[i:i + max_lines] for i in range(0, len(lines), max_lines)]
+    if len(greedy) == 1:
+        return greedy
+    words = text.split(" ")
+    if len(words) > 60 or len(greedy) > 4:
+        return greedy                                   # very long line: keep the simple split
+    from itertools import combinations
+    for n in (len(greedy), len(greedy) + 1):
+        target, best, best_cost = len(text) / n, None, float("inf")
+        for cut in combinations(range(1, len(words)), n - 1):
+            bounds = (0,) + cut + (len(words),)
+            groups = [" ".join(words[a:b]) for a, b in zip(bounds, bounds[1:])]
+            cues = [textwrap.wrap(g, width=max_chars, break_long_words=True) for g in groups]
+            if any(len(c) > max_lines for c in cues):
+                continue
+            # balanced lengths; a break after a sentence end is free, after a comma cheap, mid-clause costly
+            cost = sum((len(g) - target) ** 2 for g in groups)
+            for g in groups[:-1]:
+                cost += 0 if g[-1] in ".?!…" else (0.15 if g[-1] in ",;:" else 0.5) * target ** 2
+            if cost < best_cost:
+                best, best_cost = cues, cost
+        if best:
+            return best
+    return greedy
 
 
 def build_cues(lines: List[Dict[str, Any]], max_chars: int, max_lines: int) -> List[Dict[str, Any]]:

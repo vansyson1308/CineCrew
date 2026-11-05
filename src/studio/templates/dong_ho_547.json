@@ -1,0 +1,166 @@
+{
+  "template_id": "dong_ho_547",
+  "kind": "series",
+  "series_title": "Tiệm Đồng Hồ Đầu Ngõ",
+  "language": "vi",
+  "aspect": "9:16",
+  "global_style": "hand-painted cinematic illustration, gouache and watercolor textures, warm tungsten lamplight against cool blue rainy night, gentle film grain, rich fine detail, tender melancholic mood, vertical composition",
+  "note": "Original fictional story. Characters, shop and story are invented; no real person or brand is depicted.",
+  "assets": [
+    {
+      "asset_id": "char_linh",
+      "kind": "character",
+      "name": "Linh",
+      "identity": "Vietnamese woman, 27, slender, long straight black hair in a low ponytail, oval face, tired gentle eyes, no makeup",
+      "wardrobe": {
+        "default": "beige trench coat over a cream knit sweater, dark red wool scarf, black trousers, small silver earrings"
+      },
+      "voice": {
+        "fixture": "fixture_b",
+        "live": "shimmer",
+        "instructions": "Giọng nữ trẻ Hà Nội, nhỏ nhẹ, kìm nén xúc động."
+      }
+    },
+    {
+      "asset_id": "char_ong_khai",
+      "kind": "character",
+      "name": "Ông Khải",
+      "identity": "Vietnamese man, 72, lean, short white hair, thin white moustache, deep laugh lines, a jeweller's loupe pushed up on his forehead",
+      "wardrobe": {
+        "default": "faded grey wool cardigan over a white collared shirt, brown canvas work apron, sleeves rolled to the forearm"
+      },
+      "voice": {
+        "fixture": "fixture_a",
+        "live": "ash",
+        "instructions": "Giọng ông cụ Hà Nội, trầm, chậm rãi, ấm áp."
+      }
+    },
+    {
+      "asset_id": "loc_ngo_dem_mua",
+      "kind": "location",
+      "name": "Ngõ nhỏ đêm mưa phùn",
+      "identity": "narrow Hanoi alley at night in fine drizzle, wet cobbles reflecting light, peeling ochre walls, tangled power lines, one small old shopfront with a warm-lit window and a faded hand-painted signboard showing a clock icon, no readable words"
+    },
+    {
+      "asset_id": "loc_tiem_dong_ho",
+      "kind": "location",
+      "name": "Tiệm sửa đồng hồ",
+      "identity": "tiny cluttered watch-repair shop interior, wooden workbench with a green felt mat under a brass lamp, walls covered with dozens of old wall clocks, glass-front drawers of tiny parts, rain-streaked front window, warm amber light"
+    },
+    {
+      "asset_id": "prop_dong_ho",
+      "kind": "prop",
+      "name": "Đồng hồ quả quýt",
+      "identity": "old brass pocket watch with a worn engraved lid, white enamel dial with black Roman numerals, hands stopped at 5:47, short brass chain"
+    },
+    {
+      "asset_id": "prop_mau_giay",
+      "kind": "prop",
+      "name": "Mẩu giấy gấp",
+      "identity": "small square of yellowed paper folded four times, faint blue ink handwriting showing through, words not legible"
+    },
+    {
+      "asset_id": "voice_narrator",
+      "kind": "voice",
+      "name": "Linh (lời kể)",
+      "identity": "narrator: Linh's inner voice, first person",
+      "voice": {
+        "fixture": "fixture_narrator",
+        "live": "nova",
+        "instructions": "Giọng nữ trẻ kể chuyện, thì thầm, chậm, xúc động."
+      }
+    }
+  ],
+  "episodes": [
+    {
+      "number": 1,
+      "title": "Năm giờ bốn mươi bảy",
+      "shots": [
+        {"shot_id": "shot_01", "duration": 8, "scale": "LS", "angle": "eye_level", "movement": "slow push-in",
+         "lighting": "cold blue night drizzle, one warm amber shop window glowing", "location": "loc_ngo_dem_mua",
+         "characters": {}, "props": [],
+         "action": "The empty alley in the drizzle; the warm window of the old watch shop glows at the end.",
+         "start_state": "empty wet alley, rain falling", "end_state": "closer on the glowing shop window",
+         "beat": "loss", "dialogue": null,
+         "narration": "Bố em mất được ba tháng. Chiếc đồng hồ của bố cũng đứng yên từ hôm ấy."},
+        {"shot_id": "shot_02", "duration": 8, "scale": "MS", "angle": "eye_level", "movement": "slow push-in",
+         "lighting": "cold blue drizzle, warm window light on her face", "location": "loc_ngo_dem_mua",
+         "characters": {"char_linh": "default"}, "props": ["prop_dong_ho"],
+         "action": "Linh stands under the shop's dripping awning, looking down at the pocket watch in her open palm.",
+         "start_state": "Linh holding the closed watch", "end_state": "Linh lifts her eyes to the shop door",
+         "beat": "hesitation", "dialogue": null,
+         "narration": "Người ta bảo đầu ngõ này còn một ông thợ chữa được đồng hồ cũ."},
+        {"shot_id": "shot_03", "duration": 8, "scale": "MS", "angle": "eye_level", "movement": "static",
+         "lighting": "warm brass lamp pool, clocks glinting in the dark", "location": "loc_tiem_dong_ho",
+         "characters": {"char_ong_khai": "default"}, "props": [],
+         "action": "Ông Khải looks up from his workbench over his glasses as the door opens, a tiny screwdriver still in hand.",
+         "start_state": "Ông Khải bent over a watch movement", "end_state": "Ông Khải smiling toward the door",
+         "beat": "welcome",
+         "dialogue": {"speaker": "char_ong_khai", "text": "Mưa thế này mà vẫn có khách. Vào đây cho ấm, cháu."}},
+        {"shot_id": "shot_04", "duration": 8, "scale": "MCU", "angle": "eye_level", "movement": "static",
+         "lighting": "warm brass lamp pool, clocks glinting in the dark", "location": "loc_tiem_dong_ho",
+         "characters": {"char_linh": "default"}, "props": ["prop_dong_ho"],
+         "action": "Linh sets the pocket watch gently on the green felt mat and slides it forward.",
+         "start_state": "watch in Linh's hand above the mat", "end_state": "watch lying on the felt",
+         "beat": "fragile hope",
+         "dialogue": {"speaker": "char_linh", "text": "Ông xem giúp cháu ạ. Nó đứng ở năm giờ bốn mươi bảy, ba tháng nay rồi."}},
+        {"shot_id": "shot_05", "duration": 8, "scale": "ECU", "angle": "high", "movement": "slow push-in",
+         "lighting": "lamp reflection sliding across the glass", "location": "loc_tiem_dong_ho",
+         "characters": {}, "props": ["prop_dong_ho"],
+         "action": "Extreme close-up of the white dial, hands frozen at 5:47, lamplight reflected in the glass.",
+         "start_state": "dial filling the frame", "end_state": "tighter on the frozen hands",
+         "beat": "memory", "dialogue": null,
+         "narration": "Năm giờ bốn mươi bảy. Giờ bố đi làm về. Tối nào bố cũng ngồi lên dây cót cho nó."},
+        {"shot_id": "shot_06", "duration": 8, "scale": "MCU", "angle": "eye_level", "movement": "slow push-in",
+         "lighting": "warm brass lamp pool, clocks glinting in the dark", "location": "loc_tiem_dong_ho",
+         "characters": {"char_ong_khai": "default"}, "props": ["prop_dong_ho"],
+         "action": "Ông Khải pries open the back case with a thin blade, lowers his loupe, then pauses, surprised.",
+         "start_state": "watch open in his hands", "end_state": "his eyebrows rising behind the loupe",
+         "beat": "discovery",
+         "dialogue": {"speaker": "char_ong_khai", "text": "Máy vẫn tốt. Chỉ là lâu không ai lên dây thôi. Nhưng trong nắp có cái này."}},
+        {"shot_id": "shot_07", "duration": 7, "scale": "ECU", "angle": "high", "movement": "static",
+         "lighting": "hard little spot of lamplight on brass", "location": "loc_tiem_dong_ho",
+         "characters": {}, "props": ["prop_dong_ho", "prop_mau_giay"],
+         "action": "Brass tweezers lift a tiny folded square of yellowed paper out of the inside of the watch lid.",
+         "start_state": "folded paper tucked in the lid", "end_state": "paper held up in the tweezers",
+         "beat": "secret", "dialogue": null, "narration": null},
+        {"shot_id": "shot_08", "duration": 8, "scale": "MS", "angle": "eye_level", "movement": "static",
+         "lighting": "warm brass lamp pool between them", "location": "loc_tiem_dong_ho",
+         "characters": {"char_ong_khai": "default", "char_linh": "default"}, "props": ["prop_mau_giay"],
+         "action": "Across the workbench, Ông Khải holds the folded note out to Linh with both hands.",
+         "start_state": "note in Ông Khải's hands", "end_state": "Linh's fingers touching the note",
+         "beat": "gift",
+         "dialogue": {"speaker": "char_ong_khai", "text": "Hình như cái này là để cho cháu."}},
+        {"shot_id": "shot_09", "duration": 10, "scale": "CU", "angle": "eye_level", "movement": "slow push-in",
+         "lighting": "warm lamp from below, tears catching the light", "location": "loc_tiem_dong_ho",
+         "characters": {"char_linh": "default"}, "props": ["prop_mau_giay"],
+         "action": "Linh unfolds the note and reads; her lips tremble and her eyes fill with tears.",
+         "start_state": "Linh unfolding the paper", "end_state": "a tear on her cheek",
+         "beat": "the father's voice",
+         "dialogue": {"speaker": "char_linh", "text": "Linh ơi, đồng hồ này phải lên dây mỗi tối. Nếu con quên, mang đến ông Khải đầu ngõ. Ông ấy là bạn thân nhất của bố."}},
+        {"shot_id": "shot_10", "duration": 9, "scale": "MCU", "angle": "eye_level", "movement": "slow pull-out",
+         "lighting": "warm brass lamp pool, clocks glinting in the dark", "location": "loc_tiem_dong_ho",
+         "characters": {"char_ong_khai": "default"}, "props": ["prop_dong_ho"],
+         "action": "Ông Khải takes off his loupe, eyes wet, smiling; he slowly winds the watch crown between his fingers.",
+         "start_state": "Ông Khải holding the watch", "end_state": "his thumb turning the crown",
+         "beat": "the promise kept",
+         "dialogue": {"speaker": "char_ong_khai", "text": "Bố cháu dặn ông từ năm ngoái rồi. Ông ấy bảo, thế nào con bé cũng đến."}},
+        {"shot_id": "shot_11", "duration": 7, "scale": "ECU", "angle": "high", "movement": "slow push-in",
+         "lighting": "lamp reflection, a glint on the moving second hand", "location": "loc_tiem_dong_ho",
+         "characters": {}, "props": ["prop_dong_ho"],
+         "action": "Close on the dial: the thin second hand starts to move again past the Roman numerals.",
+         "start_state": "hands at 5:47", "end_state": "second hand sweeping on",
+         "beat": "time moves again", "dialogue": null,
+         "narration": "Chiếc đồng hồ chạy lại. Lần đầu tiên sau ba tháng."},
+        {"shot_id": "shot_12", "duration": 10, "scale": "LS", "angle": "eye_level", "movement": "slow pull-out",
+         "lighting": "warm window glow, drizzle easing to a few drops", "location": "loc_ngo_dem_mua",
+         "characters": {"char_linh": "default", "char_ong_khai": "default"}, "props": [],
+         "action": "From the alley we see through the rain-streaked shop window: Ông Khải pouring tea for Linh at the workbench, both smiling.",
+         "start_state": "the two figures at the warm window", "end_state": "the small window in the dark alley, rain stopping",
+         "beat": "comfort",
+         "dialogue": null,
+         "narration": "Hóa ra bố không chỉ để lại cho em một chiếc đồng hồ. Bố để lại cho em một người, để kể chuyện về bố."}
+      ]
+    }
+  ]
+}

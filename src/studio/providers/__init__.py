@@ -76,20 +76,39 @@ class Registry:
             if kind == "judge":
                 return FixtureJudgeProvider(price)
             raise KeyError(kind)
-        from . import live, multiref
         cfg = (self.config.get("live") or {}).get(kind) or {}
+        return self.build_live(kind, cfg)
+
+    def build_live(self, kind: str, cfg: Dict[str, Any]) -> Provider:
+        """One live provider from its providers-file block (also used for each route of a shot-router)."""
+        from . import live, multiref
         price, name = cfg.get("price"), cfg.get("provider")
+        if kind == "video" and name == "shot-router":
+            from .router import ShotRouterVideoProvider
+            routes = {rn: self.build_live("video", rc) for rn, rc in (cfg.get("routes") or {}).items()}
+            if not routes:
+                raise NotConfigured("shot-router needs `routes`")
+            return ShotRouterVideoProvider(routes, cfg.get("by_kind") or {}, cfg.get("default") or next(iter(routes)))
+        if kind == "video" and name == "comfyui":
+            from .comfyui import ComfyUIVideoProvider
+            return ComfyUIVideoProvider(cfg.get("model") or "", cfg, price)
+        if kind == "tts" and name == "vieneu-tts":
+            from .vieneu import VieNeuTTSProvider
+            return VieNeuTTSProvider(cfg.get("model") or "v3turbo", cfg, price)
         llm_key = _env("LLM_API_KEY", "OPENAI_API_KEY")
         if name in MULTIREF:
             cls = getattr(multiref, MULTIREF[name])
             if cls.kind != kind:
                 raise NotConfigured(f"provider {name!r} serves {cls.kind}, not {kind}")
             return cls(cfg.get("model") or "", cfg, price)
+        if kind == "video" and name == "motion-still":
+            from .motion import MotionStillVideoProvider
+            return MotionStillVideoProvider(cfg.get("model") or "kenburns-v1", cfg, price)
         if kind == "image" and name == "openai-image":
             key, base = _env("T2I_API_KEY") or llm_key, _env("T2I_BASE_URL") or None
             if not key and _env("HUOBAO_API_KEY") and cfg.get("gateway", True):
                 key, base = _env("HUOBAO_API_KEY"), _huobao_base() + "/v1"
-            return live.OpenAIImageProvider(cfg.get("model", "gpt-image-1"), key, base, price)
+            return live.OpenAIImageProvider(cfg.get("model", "gpt-image-2"), key, base, price, cfg.get("quality"))
         if kind == "video" and name == "veo":
             return live.VeoVideoProvider(cfg.get("model", "veo-3.1-generate-preview"),
                                          _env("VEO_API_KEY", "GEMINI_API_KEY"), price)
@@ -100,7 +119,7 @@ class Registry:
             return live.OpenAITTSProvider(cfg.get("model", "gpt-4o-mini-tts"), _env("TTS_API_KEY") or llm_key,
                                           _env("TTS_BASE_URL") or None, price)
         if kind == "judge" and name == "vlm-judge":
-            return live.VLMJudgeProvider(price=price)
+            return live.VLMJudgeProvider(model=cfg.get("model"), price=price)
         raise NotConfigured(f"no live provider configured for {kind!r} (configs/studio/providers.yaml)")
 
     def size_for(self, kind: str, aspect: str) -> Optional[str]:

@@ -458,6 +458,16 @@ class Engine:
                                                         "levels": lv, "checks": "duration > 0.2 s, not silent"}
         if not project["settings"].get("review", True):
             return "unreviewed", {"source": "none", "note": "review disabled in project settings"}
+        prov = self.provider_for(project, job["kind"])
+        skip = getattr(prov, "skips_clip_review", None)
+        if job["kind"] == "video" and (getattr(prov, "review_clips", True) is False
+                                       or (callable(skip) and skip(attempt["request"]["params"]))):
+            # a deterministic camera move over the already-reviewed keyframe: check the file, skip the paid judge
+            info = attempt["media_meta"] or {}
+            ok = info.get("duration", 0) > 0.2 and info.get("width") and not avtools.black_segments(path, 1.0)
+            return ("accepted" if ok else "rejected"), {
+                "source": "auto_check", "checks": "decodes, duration > 0.2 s, no black segment >= 1 s",
+                "note": f"{prov.name}: camera move over the reviewed keyframe; no clip judge call"}
         return self._review(job, project, attempt)
 
     def _review(self, job, project, attempt) -> Tuple[str, Dict[str, Any]]:
@@ -593,8 +603,24 @@ class Engine:
             refs = self._video_references(project, ep, kf)
             if refs:
                 req["reference_images"] = refs
+            vprov = self.provider_for(project, "video")
+            accepted = vprov.caps.accepted_fields
+            if "camera_movement" in accepted:
+                bp = load_blueprint(ep)
+                shot = next((s for s in bp.shots if s.shot_id == job["shot_id"]), None)
+                cam = shot.staging_layer.camera.movement if shot and shot.staging_layer else None
+                req["camera_movement"] = cam or "static"
+            if "shot_kind" in accepted:
+                req["shot_kind"] = self.shot_kind(ep, job["shot_id"], kf)
+            audio_sha = None
+            if vprov.caps.lip_sync and "audio" in accepted:
+                track = self.lipsync_track(ep, job["shot_id"], slot)
+                if track:
+                    req["audio"], audio_sha = str(track[0]), track[1]
             material = {**req, "image": None, "image_sha": kf_att["media_sha"] if kf_att else None,
                         "speech": speech}
+            if audio_sha:
+                material["audio"] = audio_sha
             if refs:
                 material["reference_images"] = [{"label": r["label"], "sha": r["sha"]} for r in refs]
             return req, material
@@ -624,6 +650,35 @@ class Engine:
                 a = self.store.get("attempts", j["selected_attempt"])
                 out[key.split(":")[0]] = round(float((a["media_meta"] or {}).get("duration", 0)), 3)
         return out
+
+    def shot_kind(self, ep, shot_id: str, kf_job=None) -> str:
+        """dialogue (a line is spoken on screen) | action (characters, no line) | establishing (no characters)."""
+        tts = resolve_dep(self.store, ep, f"tts:{shot_id}")
+        if tts and tts["state"] != "obsolete":
+            return "dialogue"
+        kinds = {a["data"].get("asset_id"): a["kind"] for a in self.store.q(
+            "SELECT * FROM assets WHERE project_id = ?", (ep["project_id"],))}
+        refs = (kf_job or {}).get("spec", {}).get("references", []) if kf_job else []
+        return "action" if any(kinds.get(r) == "character" for r in refs) else "establishing"
+
+    def lipsync_track(self, ep, shot_id: str, slot: float) -> Optional[Tuple[Path, str]]:
+        """A shot-length WAV holding ONLY the on-screen dialogue, at the offset the export mixes it (lead, then the
+        narration's length + gap as silence: the narrator is off screen and must not move anyone's lips).
+        Stored content-addressed, so the clip's input hash follows the voice take. None when the shot has no line."""
+        tts = resolve_dep(self.store, ep, f"tts:{shot_id}")
+        if not (tts and tts["selected_attempt"] and tts["state"] != "obsolete"):
+            return None
+        a = self.store.get("attempts", tts["selected_attempt"])
+        speech = self.speech_durations(ep, shot_id)
+        offset = SPEECH_LEAD_S + (speech["narr"] + SPEECH_GAP_S if speech.get("narr") else 0.0)
+        work = self.media.scratch(f"lipsync/{shot_id}")
+        out = work / f"track_{a['media_sha'][:12]}_{int(offset * 1000)}_{int(slot * 1000)}.wav"
+        ms = int(round(offset * 1000))
+        avtools.run(["-i", str(self.media.path(a["media_sha"])), "-af",
+                     f"aresample=16000,aformat=channel_layouts=mono,adelay={ms},apad=whole_dur={slot:.3f},atrim=0:{slot:.3f}",
+                     "-c:a", "pcm_s16le", "-bitexact", "-map_metadata", "-1", "-t", f"{slot:.3f}", str(out)])
+        row = self.media.put(out, "tts", {"purpose": "lipsync_track", "offset": offset, "slot": slot}, move=True)
+        return self.media.path(row["sha"]), row["sha"]
 
     def _input_hash(self, job, project, material) -> str:
         prov = self.provider_for(project, job["kind"])
@@ -845,13 +900,14 @@ def _public(params: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in params.items():
         if k == "reference_images":
             out[k] = [{"label": r["label"], "sha": r["sha"]} for r in v]
-        elif k == "image" and isinstance(v, str):
+        elif k in ("image", "audio") and isinstance(v, str):
             continue
         else:
             out[k] = v
-    if "image" in params and isinstance(params["image"], str):
-        from .hashing import hash_file
-        out["image_sha"] = hash_file(Path(params["image"]))
+    from .hashing import hash_file
+    for k in ("image", "audio"):
+        if k in params and isinstance(params[k], str):
+            out[f"{k}_sha"] = hash_file(Path(params[k]))
     return out
 
 
@@ -860,6 +916,7 @@ def _materialize(public: Dict[str, Any], media: MediaStore) -> Dict[str, Any]:
     out = dict(public)
     if out.get("reference_images"):
         out["reference_images"] = [{**r, "path": str(media.path(r["sha"]))} for r in out["reference_images"]]
-    if out.get("image_sha"):
-        out["image"] = str(media.path(out.pop("image_sha")))
+    for k in ("image", "audio"):
+        if out.get(f"{k}_sha"):
+            out[k] = str(media.path(out.pop(f"{k}_sha")))
     return out

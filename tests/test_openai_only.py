@@ -67,13 +67,13 @@ def test_openai_profile_builds_one_key_lineup(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     reg = Registry("live", tmp_path, load_provider_config(OPENAI_YAML))
     img, vid, tts, jdg = (reg.get(k) for k in ("image", "video", "tts", "judge"))
-    assert (img.name, img.model, img.api_key, img.quality) == ("openai-image", "gpt-image-2", "sk-test", "medium")
+    assert (img.name, img.model, img.api_key, img.quality) == ("openai-image", "gpt-image-2", "sk-test", "high")
     assert (vid.name, vid.is_fixture, vid.review_clips) == ("motion-still", False, False)
     assert (tts.name, tts.model) == ("vieneu-tts", "v3turbo")          # local Vietnamese voice, $0
     assert (jdg.name, jdg.model) == ("vlm-judge", "gpt-6.1-terra")
     assert reg.size_for("video", "9:16") == "1080x1920"
     # every paid kind has a ceiling price (no null = no blocked call), video is free
-    assert img.estimate_cost({}) == 0.10 and vid.estimate_cost({"duration": 8}) == 0.0
+    assert img.estimate_cost({}) == 0.20 and vid.estimate_cost({"duration": 8}) == 0.0
     assert tts.estimate_cost({"text": "x" * 1000}) == 0.0 and jdg.estimate_cost({}) == 0.03
     # gpt-image-2 settles from the tokens the API reports
     usd, basis = img.actual_cost({}, {"input_tokens": 2000, "output_tokens": 4000})
@@ -153,3 +153,13 @@ def test_estimate_cli_on_openai_profile(monkeypatch, capsys, tmp_path):
     main(["--home", str(tmp_path), "estimate", "--minutes", "10", "--budget", "50"])
     out = json.loads(capsys.readouterr().out)
     assert out["unit_usd"]["video"] == 0.0 and out["low_usd"] > 0 and out["max_minutes_worst_case"] > 10
+
+
+def test_subtitle_split_is_balanced_and_prefers_sentence_ends():
+    from src.studio.subtitles import wrap
+    cues = wrap("Máy vẫn tốt. Chỉ là lâu không ai lên dây thôi. Nhưng trong nắp có cái này.", 32, 2)
+    assert [" ".join(c) for c in cues] == ["Máy vẫn tốt. Chỉ là lâu không ai lên dây thôi.", "Nhưng trong nắp có cái này."]
+    cues = wrap("Ông xem giúp cháu ạ. Nó đứng ở năm giờ bốn mươi bảy, ba tháng nay rồi.", 32, 2)
+    assert " ".join(cues[0]) == "Ông xem giúp cháu ạ."
+    assert all(len(c) <= 2 and all(len(line) <= 32 for line in c) for c in cues)
+    assert wrap("Bà ơi, cho cháu hỏi nhà số 47 ở đâu ạ?", 32, 2) == [["Bà ơi, cho cháu hỏi nhà số 47 ở", "đâu ạ?"]]

@@ -283,3 +283,27 @@ def test_engine_routes_shots_and_hands_lipsync_track_at_mix_offset(tmp_path, mon
     assert {clip_jobs[j] for j in reviews if j in clip_jobs} == {"dialogue", "action"}   # still: file check only
     ex = s.export(ep["id"])
     assert ex["status"] == "final" and ex["manifest"]["inspection"]["all_pass"], ex["manifest"]["inspection"]
+
+
+def test_vieneu_redoes_implausible_takes_and_keeps_the_best(tmp_path):
+    class Babbler(FakeVieNeu):
+        lengths = [9.0, 0.2, 2.0]          # babble, swallowed, fine (seconds of audio for a 10-syllable line)
+
+        def infer(self, text, **kw):
+            self.calls.append((text, kw))
+            return self.lengths[len(self.calls) - 1]
+
+        def save(self, audio, path):
+            _wav(Path(path), audio, rate=48000)
+    prov = VieNeuTTSProvider("v3turbo", {"voice_map": {"verse": "Quốc Tuấn"}, "takes": 3})
+    prov._sdk = Babbler()
+    out = prov.submit({"text": "Bà ơi, cho cháu hỏi nhà số 47 ở đâu ạ?", "voice": "verse"}, "t" * 16, tmp_path).output
+    ratios = out.meta["takes_speech_ratio"]
+    assert len(ratios) == 3 and ratios[0] > 1.8 and ratios[1] < 0.55 and 0.55 <= ratios[2] <= 1.8
+    assert abs(avtools.probe(out.path)["duration"] - 2.0) < 0.05
+    assert not list(tmp_path.glob("*.take*.wav"))                  # rejected takes are cleaned up
+    prov2 = VieNeuTTSProvider("v3turbo", {"voice_map": {"verse": "Quốc Tuấn"}, "takes": 2})
+    prov2._sdk = Babbler()
+    out2 = prov2.submit({"text": "Bà ơi, cho cháu hỏi nhà số 47 ở đâu ạ?", "voice": "verse"}, "u" * 16, tmp_path).output
+    assert len(out2.meta["takes_speech_ratio"]) == 2                # none plausible: the closer one is kept
+    assert abs(avtools.probe(out2.path)["duration"] - 9.0) < 0.05  # |log 4.05| < |log 0.09|: closer in log terms

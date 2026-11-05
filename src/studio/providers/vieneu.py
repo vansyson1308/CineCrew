@@ -23,6 +23,10 @@ voice is refused before any synthesis. Free-text `instructions` have no VieNeu e
 follows the reference voice) and are dropped with an adaptation note; VieNeu's inline cues ([cười], [thở dài],
 [hắng giọng]) can be written in the dialogue text itself.
 
+Robustness (learned from srt-whiteboard-animation): weights are stored as real files under VIENEU_CACHE (point it at
+an existing download to reuse it), and each line is synthesized up to `takes` times: a take whose voiced length is
+implausible for the text (babbling, swallowed words) is redone and the most plausible take is kept.
+
 Docs: https://github.com/pnnbao97/VieNeu-TTS (README, apps/openai_speech.py), PyPI `vieneu` 3.8.x.
 """
 
@@ -39,6 +43,25 @@ _ENGINES: Dict[Tuple, Any] = {}
 _LOCK = threading.Lock()
 
 
+def _real_file_fetch(root: Path):
+    """Download the ONNX graphs as real files under `root` instead of Hugging Face cache symlinks: recent
+    onnxruntime refuses external weight data that resolves outside the model's own folder. The layout
+    (<root>/<owner>--<repo>/...) is the one srt-whiteboard-animation uses, so VIENEU_CACHE can point at an
+    existing download (e.g. ~/.cache/wb-video/vieneu) and nothing is fetched again."""
+    def fetch(repo: str, files, subfolder):
+        from huggingface_hub import hf_hub_download
+        last = None
+        for fn in files:
+            try:
+                last = hf_hub_download(repo, fn, subfolder=subfolder or None, local_dir=root / repo.replace("/", "--"))
+            except Exception:
+                if fn.endswith(".json"):
+                    continue
+                raise
+        return Path(last).parent
+    return fetch
+
+
 def _engine(mode: str, kwargs: Dict[str, Any]):
     """One VieNeu engine per (mode, options) per process: loading takes seconds, synthesis is serialized."""
     key = (mode, tuple(sorted(kwargs.items())))
@@ -48,8 +71,38 @@ def _engine(mode: str, kwargs: Dict[str, Any]):
                 from vieneu import Vieneu
             except ImportError as e:
                 raise NotConfigured("VieNeu-TTS is not installed: pip install vieneu") from e
+            try:
+                from vieneu._v3_turbo_engine import onnx_runtime_lite as orl
+                root = Path(os.getenv("VIENEU_CACHE") or Path.home() / ".cache" / "cinecrew" / "vieneu").expanduser()
+                orl.OnnxV3LiteEngine._fetch = staticmethod(_real_file_fetch(root))
+            except Exception:  # noqa: BLE001  (other VieNeu builds: keep their own download path)
+                pass
             _ENGINES[key] = Vieneu(mode=mode, **kwargs)
         return _ENGINES[key]
+
+
+def voiced_seconds(path: Path, threshold: float = 0.02, frame_ms: int = 20) -> float:
+    """Seconds of a WAV that carry voice (frames whose peak passes `threshold` of full scale)."""
+    import wave
+    import numpy as np
+    with wave.open(str(path), "rb") as w:
+        rate, ch, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
+        raw = w.readframes(w.getnframes())
+    dtype = {1: np.int8, 2: np.int16, 4: np.int32}.get(width, np.int16)
+    x = np.frombuffer(raw, dtype=dtype).astype(np.float32) / float(np.iinfo(dtype).max)
+    if ch > 1:
+        x = x.reshape(-1, ch).mean(axis=1)
+    n = max(1, rate * frame_ms // 1000)
+    frames = x[: len(x) // n * n].reshape(-1, n) if len(x) >= n else x.reshape(1, -1)
+    return float((np.abs(frames).max(axis=1) > threshold).sum() * n / rate)
+
+
+def speech_ratio(text: str, path: Path, syllables_per_s: float = 4.5) -> float:
+    """Voiced length / the length the text needs (1.0 = as expected). A generative voice now and then babbles,
+    stalls or swallows words; such takes are far from 1. Vietnamese: one written word = one syllable."""
+    import re
+    syl = len(re.findall(r"\w+", re.sub(r"\[[^\]]*\]", " ", text)))
+    return voiced_seconds(path) / max(0.4, syl / syllables_per_s)
 
 
 class VieNeuTTSProvider(Provider):
@@ -112,26 +165,48 @@ class VieNeuTTSProvider(Provider):
         workdir = Path(workdir)
         workdir.mkdir(parents=True, exist_ok=True)
         out = workdir / f"vieneu_{idempotency_key[:12]}.wav"
+        takes = None
         if self.route == "server":
             self._via_server(request["text"], v, out)
         else:
-            self._via_sdk(request["text"], v, out)
+            takes = self._via_sdk(request["text"], v, out)
         info = avtools.probe(out)
         if not info["duration"]:
             raise ProviderError("vieneu-tts: empty audio")
+        meta = {"voice": v["label"], "route": self.route}
+        if takes is not None:
+            meta["takes_speech_ratio"] = takes          # voiced length / expected, per take (1.0 = as expected)
         return SubmitResult(f"local_{idempotency_key[:12]}",
-                            Output(out, "audio/wav", usage={"characters": len(request["text"])},
-                                   meta={"voice": v["label"], "route": self.route}))
+                            Output(out, "audio/wav", usage={"characters": len(request["text"])}, meta=meta))
 
-    def _via_sdk(self, text: str, v: Dict[str, Any], out: Path) -> None:
+    def _via_sdk(self, text: str, v: Dict[str, Any], out: Path) -> list:
+        """Up to `takes` syntheses; stop at the first plausible one, else keep the most plausible (meta records it)."""
         tts = self._sdk or _engine(self.model, self.engine_kwargs)
         kw = {"ref_audio": v["ref_audio"]} if "ref_audio" in v else {"voice": v["voice"]}
-        try:
-            with _LOCK:                    # one synthesis at a time per process (CPU engine shares the cores)
-                audio = tts.infer(text, **kw)
-                tts.save(audio, str(out))
-        except Exception as e:  # noqa: BLE001
-            raise ProviderError(f"vieneu-tts: {type(e).__name__}: {e}") from e
+        lo, hi = self.cfg.get("plausible_ratio", [0.55, 1.8])
+        best, best_err, takes = None, float("inf"), []
+        import math
+        for k in range(max(1, int(self.cfg.get("takes", 3)))):
+            take = out.with_name(f"{out.stem}.take{k}.wav")
+            try:
+                with _LOCK:                # one synthesis at a time per process (CPU engine shares the cores)
+                    audio = tts.infer(text, **kw)
+                    tts.save(audio, str(take))
+            except Exception as e:  # noqa: BLE001
+                raise ProviderError(f"vieneu-tts: {type(e).__name__}: {e}") from e
+            ratio = speech_ratio(text, take)
+            takes.append(round(ratio, 3))
+            err = abs(math.log(max(ratio, 1e-3)))
+            if err < best_err:
+                if best:
+                    best.unlink(missing_ok=True)
+                best, best_err = take, err
+            else:
+                take.unlink(missing_ok=True)
+            if lo <= ratio <= hi:
+                break
+        best.replace(out)
+        return takes
 
     def _via_server(self, text: str, v: Dict[str, Any], out: Path) -> None:
         if not self.base_url:

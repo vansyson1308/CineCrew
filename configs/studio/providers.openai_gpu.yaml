@@ -21,10 +21,10 @@ live:
   image:
     provider: openai-image
     model: gpt-image-2                 # alternative: gpt-image-2.5-flare (2x the token price, newer)
-    quality: medium                    # low | medium | high
+    quality: high                      # low | medium | high — high for a real episode (beauty matters)
     size_portrait: "1024x1536"
     size_landscape: "1536x1024"
-    price: {unit: image, usd: 0.10, max_usd_per_call: null,
+    price: {unit: image, usd: 0.20, max_usd_per_call: null,
             input_usd_per_1m_tokens: 4.0, output_usd_per_1m_tokens: 15.0}
   video:
     provider: shot-router
@@ -63,17 +63,22 @@ live:
     route: sdk                         # sdk = in-process; server = VieNeu's OpenAI-shaped server at VIENEU_BASE_URL
     engine: {precision: fp32}          # fp32 (best) | int8 (~1.6x faster, needs a VNNI CPU)
     price: {unit: 1k_chars, usd: 0.0}
-    # Planned voice (templates use OpenAI names) -> VieNeu preset name, or clone:<path to a 3-8 s clip of the
-    # voice you want>. Presets (README): Hải Đăng (default), Thiện Minh, Mai Anh, Thùy Dung, Ngọc Huyền, Quang Sơn,
-    # Ngọc Trân, Trúc Ly, Adam bựa, Thiền Tâm Đức; North: Minh Đức, Phạm Tuyên, Xuân Vĩnh, Thanh Bình, Ngọc Linh,
-    # Đoan Trang, Quỳnh Anh, Quốc Tuấn; Central: Quang Sơn, Ngọc Trân; South: Adam, Thái Sơn, Thục Đoan, Minh Triết,
-    # Mỹ Duyên, Đức Trí, Kim Thanh. Listen before a real episode: choices below are a first guess by name/region.
-    # A clone clip per character gives the steadiest voice across a series (e.g. an old Hanoi woman for Bà Tư).
+    # Planned voice (templates use OpenAI names) -> VieNeu preset, or clone:<path to a 3-8 s clip>.
+    # Presets (gender, region, style; from srt-whiteboard-animation's voice list): Hải Đăng (m, Bắc, tự nhiên),
+    # Thiện Minh (m, Bắc, kể chuyện), Minh Đức (m, Bắc, tin tức), Thanh Bình (m, Bắc, kể chuyện), Quốc Tuấn (m, Bắc,
+    # tự nhiên), Minh Triết (m, Nam, tin tức), Thái Sơn (m, Nam, kể chuyện), Quang Sơn (m, Trung, tự nhiên),
+    # Mai Anh (f, Bắc, tin tức), Trúc Ly (f, Bắc, tự nhiên), Ngọc Linh (f, Bắc, kể chuyện), Đoan Trang (f, Bắc,
+    # tự nhiên), Thùy Dung (f, Nam, tin tức), Thục Đoan (f, Nam, kể chuyện), Ngọc Trân (f, Trung, tự nhiên).
+    # No preset is elderly: a clone: clip per old character gives the most convincing voice.
     voice_map:
-      alloy: "Hải Đăng"                # narrator
-      verse: "Quốc Tuấn"               # Minh — young Hanoi man (Northern preset)
-      sage: "Đoan Trang"               # Bà Tư — elderly Hanoi woman: better a clone: clip
-      coral: "Ngọc Linh"               # chị Lan (brand_mooncake)
+      alloy: "Hải Đăng"                # narrator (hanoi_delivery, brand_mooncake)
+      verse: "Quốc Tuấn"               # Minh — young Hanoi man
+      sage: "Đoan Trang"               # Bà Tư — elderly Hanoi woman (better: clone:)
+      coral: "Trúc Ly"                 # chị Lan (brand_mooncake)
+      shimmer: "Ngọc Linh"             # Linh (dong_ho_547): same voice as her inner narration
+      nova: "Ngọc Linh"                # Linh's inner voice, narration (dong_ho_547)
+      ash: "Thanh Bình"                # Ông Khải — old Hanoi watchmaker (better: clone:)
+    takes: 3                           # redo a line whose spoken length is implausible (babble / swallowed words)
     # OpenAI voice instead (paid, deprecated 2027-01-06):
     # provider: openai-tts | model: gpt-4o-mini-tts | price: {unit: 1k_chars, usd: 0.03}
   judge:

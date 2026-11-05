@@ -82,19 +82,27 @@ def _engine(mode: str, kwargs: Dict[str, Any]):
 
 
 def voiced_seconds(path: Path, threshold: float = 0.02, frame_ms: int = 20) -> float:
-    """Seconds of a WAV that carry voice (frames whose peak passes `threshold` of full scale)."""
+    """Seconds of a PCM WAV that carry voice (frames whose peak, over all channels, passes `threshold` of full
+    scale). Standard library only: the studio's base install has no numpy."""
+    import array
+    import sys
     import wave
-    import numpy as np
     with wave.open(str(path), "rb") as w:
         rate, ch, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
         raw = w.readframes(w.getnframes())
-    dtype = {1: np.int8, 2: np.int16, 4: np.int32}.get(width, np.int16)
-    x = np.frombuffer(raw, dtype=dtype).astype(np.float32) / float(np.iinfo(dtype).max)
-    if ch > 1:
-        x = x.reshape(-1, ch).mean(axis=1)
-    n = max(1, rate * frame_ms // 1000)
-    frames = x[: len(x) // n * n].reshape(-1, n) if len(x) >= n else x.reshape(1, -1)
-    return float((np.abs(frames).max(axis=1) > threshold).sum() * n / rate)
+    if width == 1:                                    # 8-bit WAV is unsigned, centred on 128
+        samples, full = [abs(b - 128) for b in raw], 128
+    else:
+        if width == 3:                                # 24-bit: the top two bytes are enough for a level gate
+            raw = b"".join(raw[i + 1:i + 3] for i in range(0, len(raw), 3))
+        samples = array.array("i" if width == 4 else "h", raw)
+        if sys.byteorder == "big":
+            samples.byteswap()
+        full = 2 ** (8 * samples.itemsize - 1)
+    frame = max(1, rate * frame_ms // 1000)
+    step, limit = frame * ch, threshold * full
+    voiced = sum(1 for i in range(0, len(samples), step) if max(map(abs, samples[i:i + step])) > limit)
+    return voiced * frame / rate
 
 
 def speech_ratio(text: str, path: Path, syllables_per_s: float = 4.5) -> float:

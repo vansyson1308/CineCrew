@@ -253,7 +253,8 @@ def _mix_audio(studio, project, tl, work: Path, cfg: Dict[str, Any], native_cut:
         for l in tl["lines"]]}
     n = len(labels)
     if n:
-        filters.append(f"{''.join(labels)}amix=inputs={n}:normalize=0:dropout_transition=0,apad,atrim=0:{dur:.3f}[voice]")
+        filters.append(f"{''.join(labels)}amix=inputs={n}:normalize=0:dropout_transition=0,"
+                       f"apad=whole_dur={dur:.3f},atrim=0:{dur:.3f}[voice]")
     else:
         inputs += ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
         filters.append(f"[{len(inputs) // 2 - 1}:a]atrim=0:{dur:.3f}[voice]")
@@ -287,7 +288,10 @@ def _mix_audio(studio, project, tl, work: Path, cfg: Dict[str, Any], native_cut:
     filters.append(f"[pre]afade=t=in:d={min(fade_in, 0.1)},alimiter=limit=0.89:level=disabled,"
                    f"atrim=0:{dur:.3f}[out]")
     mix = work / "mix.wav"
-    avtools.run(inputs + ["-filter_complex", ";".join(filters), "-map", "[out]", "-ac", "2", "-ar", "48000", str(mix)])
+    # Every source is bounded (apad pads to the film length instead of forever) and the output is capped with -t:
+    # ffmpeg 8.0 can keep an unbounded apad running after the downstream atrim has ended, so the mix never finishes.
+    avtools.run(inputs + ["-filter_complex", ";".join(filters), "-map", "[out]", "-ac", "2", "-ar", "48000",
+                          "-t", f"{dur:.3f}", str(mix)])
     report["levels"] = avtools.audio_levels(mix)
     report["limiter"] = "alimiter at -1 dBFS"
     return mix, report

@@ -675,8 +675,8 @@ class Engine:
         out = work / f"track_{a['media_sha'][:12]}_{int(offset * 1000)}_{int(slot * 1000)}.wav"
         ms = int(round(offset * 1000))
         avtools.run(["-i", str(self.media.path(a["media_sha"])), "-af",
-                     f"aresample=16000,aformat=channel_layouts=mono,adelay={ms},apad,atrim=0:{slot:.3f}",
-                     "-c:a", "pcm_s16le", "-bitexact", "-map_metadata", "-1", str(out)])
+                     f"aresample=16000,aformat=channel_layouts=mono,adelay={ms},apad=whole_dur={slot:.3f},atrim=0:{slot:.3f}",
+                     "-c:a", "pcm_s16le", "-bitexact", "-map_metadata", "-1", "-t", f"{slot:.3f}", str(out)])
         row = self.media.put(out, "tts", {"purpose": "lipsync_track", "offset": offset, "slot": slot}, move=True)
         return self.media.path(row["sha"]), row["sha"]
 
